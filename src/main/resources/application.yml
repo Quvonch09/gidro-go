@@ -20,8 +20,8 @@ spring:
 
   datasource:
     url: jdbc:postgresql://localhost:5432/gidrogo_db
-    username: postgres
-    password: ""
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
     hikari:
       pool-name: GidroGoHikariCP
