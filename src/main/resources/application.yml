@@ -64,3 +64,13 @@ app:
   courier:
     assignment-timeout-seconds: 30
     nearby-distance-meters: 500.0
+  upload:
+    dir: uploads
+    base-url: http://169.58.215.170:8080
+
+spring:
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 15MB

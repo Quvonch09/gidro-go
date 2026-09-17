@@ -82,4 +82,12 @@ public class AuthDtos {
         private Long farmId;
         private String status;
     }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RefreshTokenRequest {
+        @NotBlank(message = "Refresh token kiritilishi shart")
+        private String refreshToken;
+    }
 }

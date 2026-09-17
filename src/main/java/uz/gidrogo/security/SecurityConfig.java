@@ -35,6 +35,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/client/available-farms").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/client/farms/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/files/view/**").permitAll()
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
@@ -47,6 +48,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/manager/**").hasAnyRole("MANAGER", "BOSS")
                         .requestMatchers("/api/courier/**").hasRole("COURIER")
                         .requestMatchers("/api/client/**").hasRole("CLIENT")
+                        .requestMatchers("/api/files/**").authenticated()
 
                         .anyRequest().authenticated()
                 )

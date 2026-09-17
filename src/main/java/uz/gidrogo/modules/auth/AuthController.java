@@ -51,4 +51,11 @@ public class AuthController {
         AuthResponse response = authService.registerClient(request);
         return ResponseEntity.ok(ApiResponse.ok("Mijoz muvaffaqiyatli ro'yxatdan o'tdi", response));
     }
+
+    @PostMapping("/refresh")
+    @Operation(summary = "Access tokenni yangilash (refresh token yordamida)")
+    public ResponseEntity<ApiResponse<AuthResponse>> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
+        AuthResponse response = authService.refreshToken(request);
+        return ResponseEntity.ok(ApiResponse.ok("Token yangilandi", response));
+    }
 }

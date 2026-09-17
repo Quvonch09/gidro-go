@@ -1,10 +1,16 @@
 package uz.gidrogo.modules.courier;
 
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
 
 public class CourierDtos {
 
@@ -17,6 +23,20 @@ public class CourierDtos {
 
         @NotNull(message = "Longitude kiritilishi shart")
         private Double longitude;
+
+        private Float accuracy; // metr (ixtiyoriy)
+        private Float bearing;  // yo'nalish (ixtiyoriy)
+        private Float speed;    // m/s (ixtiyoriy)
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class LocationUpdateResponse {
+        private String status;      // OK
+        private boolean nearbyTriggered; // Agar biron buyurtmaga 500m yaqin bo'lsa true
+        private Long nearbyOrderId; // Qaysi buyurtmaga yaqinlashdi
     }
 
     @Data
@@ -25,6 +45,100 @@ public class CourierDtos {
     public static class DeliverRequest {
         @NotNull(message = "Yetkazilganlik rasmi URL kiritilishi shart")
         private String photoUrl;
+
+        private Integer emptyBottlesReturned; // Qaytarilgan bo'sh shishalar soni
+        private String clientNote;            // Mijozdan olgan izoh
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CashCollectedRequest {
+        @NotNull(message = "Olingan summa kiritilishi shart")
+        private BigDecimal amountCollected; // Haqiqatda olingan naqd pul
+        private String note;                // Izoh (ixtiyoriy)
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RejectOrderRequest {
+        @NotBlank(message = "Rad etish sababi kiritilishi shart")
+        private String reason; // CLIENT_UNREACHABLE, WRONG_ADDRESS, OVERLOADED, OTHER
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StatusToggleRequest {
+        @NotNull(message = "Holat kiritilishi shart")
+        private Boolean online; // true = ONLINE, false = OFFLINE
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class DeviceTokenRequest {
+        @NotBlank(message = "FCM token kiritilishi shart")
+        private String fcmToken;
+
+        private String deviceType; // ANDROID, IOS (ixtiyoriy)
+    }
+
+    // ── Response DTOs ────────────────────────────────────────────────────────
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CourierProfileResponse {
+        private Long id;
+        private String fullName;
+        private String phone;
+        private String status;       // ACTIVE, BLOCKED
+        private Boolean isOnline;    // Redis'dan olinadi
+        private Long farmId;
+        private String farmName;
+        private Double latitude;
+        private Double longitude;
+        private Instant lastSeenAt;
+        // Bugungi statistika
+        private long todayCompleted;
+        private BigDecimal todayCash;
+        private BigDecimal todayOnline;
+        private BigDecimal todayTotal;
+        private BigDecimal vehicleStock; // Mashinadagi suv qoldig'i
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CourierDashboardResponse {
+        private LocalDate date;
+        private long assignedOrders;
+        private long completedOrders;
+        private long problemOrders;
+        private BigDecimal totalRevenue;
+        private BigDecimal cashRevenue;
+        private BigDecimal onlineRevenue;
+        private BigDecimal loadedBottles;
+        private BigDecimal soldBottles;
+        private BigDecimal remainingBottles;
+        private List<RecentOrderSummary> recentOrders; // So'nggi 5 ta buyurtma
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RecentOrderSummary {
+        private Long id;
+        private String orderNumber;
+        private String clientName;
+        private String status;
+        private BigDecimal totalSum;
+        private Instant createdAt;
     }
 
     @Data
@@ -64,5 +178,14 @@ public class CourierDtos {
         private Long activeOrderId;
         private String activeOrderNumber;
         private String activeOrderAddress;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ProblemReasonItem {
+        private String code;
+        private String label; // O'zbek tilidagi nomi
     }
 }

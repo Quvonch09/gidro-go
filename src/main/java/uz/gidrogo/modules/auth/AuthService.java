@@ -1,5 +1,6 @@
 package uz.gidrogo.modules.auth;
 
+import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -172,6 +173,50 @@ public class AuthService {
                 .fullName(user.getFullName())
                 .role(user.getRole())
                 .farmId(farm.getId())
+                .status(user.getStatus())
+                .build();
+    }
+
+    @Transactional
+    public AuthResponse refreshToken(RefreshTokenRequest request) {
+        String refreshToken = request.getRefreshToken();
+
+        if (!jwtTokenProvider.validateToken(refreshToken)) {
+            throw new BadRequestException("Refresh token yaroqsiz yoki muddati o'tgan");
+        }
+
+        Claims claims = jwtTokenProvider.getClaimsFromToken(refreshToken);
+        String tokenType = claims.get("type", String.class);
+        if (!"REFRESH".equals(tokenType)) {
+            throw new BadRequestException("Yaroqli refresh token taqdim etilmadi");
+        }
+
+        Long userId = Long.parseLong(claims.getSubject());
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Foydalanuvchi topilmadi"));
+
+        if ("BLOCKED".equalsIgnoreCase(user.getStatus())) {
+            throw new BadRequestException("Foydalanuvchi bloklangan");
+        }
+
+        Long farmId = user.getFarmId();
+        if (farmId == null && user.getRole() == Role.CLIENT) {
+            Client client = clientRepository.findByUserId(user.getId()).orElse(null);
+            if (client != null) farmId = client.getFarmId();
+        }
+
+        String userIdentifier = user.getUsername() != null && !user.getUsername().isBlank()
+                ? user.getUsername() : user.getPhone();
+        String newAccessToken = jwtTokenProvider.generateAccessToken(userId, userIdentifier, user.getRole(), farmId);
+        String newRefreshToken = jwtTokenProvider.generateRefreshToken(userId);
+
+        return AuthResponse.builder()
+                .accessToken(newAccessToken)
+                .refreshToken(newRefreshToken)
+                .userId(user.getId())
+                .fullName(user.getFullName())
+                .role(user.getRole())
+                .farmId(farmId)
                 .status(user.getStatus())
                 .build();
     }

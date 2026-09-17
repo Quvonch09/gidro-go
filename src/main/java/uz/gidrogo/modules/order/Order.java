@@ -71,6 +71,9 @@ public class Order {
     @Builder.Default
     private Integer emptyBottlesReturned = 0;
 
+    @Column(name = "client_note", columnDefinition = "TEXT")
+    private String clientNote;
+
     @Column(name = "deposit_amount", precision = 12, scale = 2)
     @Builder.Default
     private BigDecimal depositAmount = BigDecimal.ZERO;
