@@ -36,16 +36,16 @@ public class SuperAdminController {
     // ==========================================
     // 1. HUDUDIY TAQSIMOT (REGIONAL DISTRIBUTION)
     // ==========================================
-    @GetMapping({"/statistics/regions", "/regions-distribution", "/regional-distribution"})
+    @GetMapping("/statistics/regions")
     @Operation(summary = "Hududiy taqsimot - viloyatlar kesimida fermalar soni va foiz statistikasi")
     public ResponseEntity<ApiResponse<RegionalDistributionResponse>> getRegionalDistribution() {
         return ResponseEntity.ok(ApiResponse.ok(superAdminService.getRegionalDistribution()));
     }
 
     // ==========================================
-    // 2. FERMA EGALARI (FARM OWNERS / BOSSES LIST)
+    // 2. FERMA EGALARI (BOSSES LIST & MANAGEMENT)
     // ==========================================
-    @GetMapping({"/bosses", "/farm-owners", "/ferma-egalari"})
+    @GetMapping("/bosses")
     @Operation(summary = "Ferma egalari (Bosslar) ro'yxati, qidiruv, filtr va umumiy statistik kartochkalar")
     public ResponseEntity<ApiResponse<BossListResponse>> getBosses(
             @RequestParam(required = false) String search,
@@ -62,7 +62,7 @@ public class SuperAdminController {
         return ResponseEntity.ok(ApiResponse.ok("Boss ma'lumotlari yangilandi", superAdminService.updateBoss(id, request)));
     }
 
-    @PatchMapping({"/bosses/{id}/toggle-status", "/bosses/{id}/status"})
+    @PatchMapping("/bosses/{id}/toggle-status")
     @Operation(summary = "Ferma egasi statusini almashtirish (Faol <-> Bloklangan)")
     public ResponseEntity<ApiResponse<BossItemResponse>> toggleBossStatus(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok("Status muvaffaqiyatli o'zgartirildi", superAdminService.toggleBossStatus(id)));
@@ -75,7 +75,7 @@ public class SuperAdminController {
         return ResponseEntity.ok(ApiResponse.ok("Boss o'chirildi", null));
     }
 
-    @PostMapping({"/farms", "/fermalar"})
+    @PostMapping("/farms")
     @Operation(summary = "Yangi ferma yaratish (Ferma ma'lumotlari va uning Rahbari bir vaqtda birdaniga kiritiladi)")
     public ResponseEntity<ApiResponse<FarmResponse>> createFarm(@Valid @RequestBody FarmCreateRequest request) {
         return ResponseEntity.ok(ApiResponse.ok("Ferma muvaffaqiyatli yaratildi", farmService.createFarm(request)));
@@ -88,28 +88,8 @@ public class SuperAdminController {
     }
 
     @GetMapping("/farms/{id}")
-    @Operation(summary = "Ferma ma'lumotlari va to'liq statistikasi (kartalar, grafik, xodimlar, mahsulotlar)")
-    public ResponseEntity<ApiResponse<FarmDetailResponse>> getFarmById(@PathVariable String id) {
-        return ResponseEntity.ok(ApiResponse.ok(farmService.getFarmDetail(parseFarmId(id))));
-    }
-
-    @GetMapping("/farms/{id}/detail")
     @Operation(summary = "Ferma detail sahifasi uchun to'liq yagona API (kartalar, grafik, xodimlar, mahsulotlar)")
-    public ResponseEntity<ApiResponse<FarmDetailResponse>> getFarmDetail(@PathVariable String id) {
-        return ResponseEntity.ok(ApiResponse.ok(farmService.getFarmDetail(parseFarmId(id))));
-    }
-
-    @GetMapping("/farms/{id}/statistics")
-    @Operation(summary = "Ferma statistikasi va savdo dinamikasi grafigi")
-    public ResponseEntity<ApiResponse<FarmDetailResponse>> getFarmStatistics(@PathVariable String id) {
-        return ResponseEntity.ok(ApiResponse.ok(farmService.getFarmDetail(parseFarmId(id))));
-    }
-
-    @GetMapping("/farms/{id}/analytics")
-    @Operation(summary = "Bitta ferma bo'yicha to'liq moliyaviy va operatsion analitika")
-    public ResponseEntity<ApiResponse<FarmDetailResponse>> getFarmAnalytics(
-            @PathVariable String id,
-            @RequestParam(required = false, defaultValue = "month") String period) {
+    public ResponseEntity<ApiResponse<FarmDetailResponse>> getFarmById(@PathVariable String id) {
         return ResponseEntity.ok(ApiResponse.ok(farmService.getFarmDetail(parseFarmId(id))));
     }
 
