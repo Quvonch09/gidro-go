@@ -18,4 +18,4 @@ CREATE INDEX IF NOT EXISTS idx_orders_client_farm ON orders(client_id, farm_id);
 CREATE INDEX IF NOT EXISTS idx_delivery_photos_order ON delivery_photos(order_id);
 
 -- Order problem logs uchun indeks
-CREATE INDEX IF NOT EXISTS idx_problem_logs_order ON order_problem_logs(order_id);
+CREATE INDEX IF NOT EXISTS idx_problem_logs_order ON order_problem_log(order_id);
