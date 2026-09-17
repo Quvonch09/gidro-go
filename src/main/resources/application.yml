@@ -71,5 +71,5 @@ app:
     assignment-timeout-seconds: 30
     nearby-distance-meters: 500.0
   upload:
-    dir: uploads
+    dir: ${APP_UPLOAD_DIR:/opt/gidrogo/uploads}
     base-url: http://169.58.215.170:8080

@@ -61,7 +61,7 @@ public class FileController {
         LocalDate today = LocalDate.now();
         String subDir = today.getYear() + "/" + String.format("%02d", today.getMonthValue())
                 + "/" + String.format("%02d", today.getDayOfMonth());
-        Path uploadPath = Paths.get(uploadDir, subDir);
+        Path uploadPath = Paths.get(uploadDir, subDir).toAbsolutePath().normalize();
         Files.createDirectories(uploadPath);
 
         // Noyob fayl nomi
@@ -71,8 +71,8 @@ public class FileController {
                 : ".jpg";
         String fileName = UUID.randomUUID().toString().replace("-", "") + ext;
 
-        Path filePath = uploadPath.resolve(fileName);
-        file.transferTo(filePath.toFile());
+        Path filePath = uploadPath.resolve(fileName).toAbsolutePath().normalize();
+        file.transferTo(filePath);
 
         String fileUrl = baseUrl + "/api/files/view/" + subDir + "/" + fileName;
         log.info("Fayl yuklandi: {}", fileUrl);
