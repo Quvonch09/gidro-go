@@ -56,8 +56,11 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD || 'quvonch09' }}
           port: 22
           script: |
-            mv -f /root/gidrogo/tmp/gidrogo-backend-2.0.0.jar /root/gidrogo/gidrogo-backend.jar
+            mkdir -p /opt/gidrogo/uploads
+            mv -f /root/gidrogo/tmp/gidrogo-backend-2.0.0.jar /opt/gidrogo/gidrogo-backend.jar
+            cp -f /opt/gidrogo/gidrogo-backend.jar /root/gidrogo/gidrogo-backend.jar
+            systemctl daemon-reload
             systemctl restart gidrogo.service
-            echo "Service restarted. Checking status..."
-            sleep 10
-            systemctl is-active --quiet gidrogo.service && echo "GidroGo backend is ACTIVE!" || (echo "Service failed to start" && exit 1)
+            echo "Service restarted. Waiting 20 seconds for Spring Boot..."
+            sleep 20
+            systemctl is-active --quiet gidrogo.service && echo "GidroGo backend is ACTIVE!" || (echo "Service failed to start" && journalctl -u gidrogo -n 30 --no-pager && exit 1)
