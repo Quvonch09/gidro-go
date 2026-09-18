@@ -42,7 +42,7 @@ public class CourierController {
 
     // ── Online/Offline holat ─────────────────────────────────────────────────
 
-    @PatchMapping("/status")
+    @RequestMapping(value = "/status", method = {RequestMethod.PATCH, RequestMethod.POST})
     @Operation(summary = "Online/Offline holatini almashtirish (online: true/false)")
     public ResponseEntity<ApiResponse<Map<String, Object>>> toggleStatus(
             @Valid @RequestBody StatusToggleRequest request) {
@@ -58,6 +58,12 @@ public class CourierController {
             @Parameter(description = "Holat bo'yicha filter (bo'sh qolsa: ASSIGNED, ON_THE_WAY, NEARBY)")
             @RequestParam(required = false) String status) {
         return ResponseEntity.ok(ApiResponse.ok(courierService.getCourierOrders(status)));
+    }
+
+    @GetMapping("/orders/active")
+    @Operation(summary = "Kuryerning ayni paytdagi faol buyurtmalari (ASSIGNED, ON_THE_WAY, NEARBY)")
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getActiveOrders() {
+        return ResponseEntity.ok(ApiResponse.ok(courierService.getCourierOrders(null)));
     }
 
     @GetMapping("/orders/{id}")

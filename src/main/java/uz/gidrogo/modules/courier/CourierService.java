@@ -352,7 +352,8 @@ public class CourierService {
         Long courierId = SecurityUtils.getCurrentUserId();
         String redisKey = "courier:online:" + courierId;
 
-        if (Boolean.TRUE.equals(request.getOnline())) {
+        boolean isOnline = Boolean.TRUE.equals(request.isOnlineEffective());
+        if (isOnline) {
             redisTemplate.opsForValue().set(redisKey, "true");
             log.info("Kuryer {} ONLINE bo'ldi", courierId);
             return Map.of("status", "ONLINE", "message", "Siz endi onlinesiz");

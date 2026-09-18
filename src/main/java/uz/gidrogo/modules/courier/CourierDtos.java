@@ -71,8 +71,14 @@ public class CourierDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class StatusToggleRequest {
-        @NotNull(message = "Holat kiritilishi shart")
         private Boolean online; // true = ONLINE, false = OFFLINE
+        private String status;  // "ONLINE" yoki "OFFLINE"
+
+        public Boolean isOnlineEffective() {
+            if (online != null) return online;
+            if (status != null) return "ONLINE".equalsIgnoreCase(status);
+            return true;
+        }
     }
 
     @Data
