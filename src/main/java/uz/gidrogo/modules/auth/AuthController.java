@@ -58,4 +58,11 @@ public class AuthController {
         AuthResponse response = authService.refreshToken(request);
         return ResponseEntity.ok(ApiResponse.ok("Token yangilandi", response));
     }
+
+    @PostMapping("/logout")
+    @Operation(summary = "Tizimdan chiqish (sessiyani yakunlash va FCM tokenini o'chirish)")
+    public ResponseEntity<ApiResponse<Boolean>> logout(@RequestBody(required = false) LogoutRequest request) {
+        authService.logout(request);
+        return ResponseEntity.ok(ApiResponse.ok("Sessiya muvaffaqiyatli yakunlandi va qurilma tokeni o'chirildi", true));
+    }
 }

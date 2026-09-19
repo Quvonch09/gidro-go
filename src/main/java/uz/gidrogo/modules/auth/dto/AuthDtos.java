@@ -90,4 +90,12 @@ public class AuthDtos {
         @NotBlank(message = "Refresh token kiritilishi shart")
         private String refreshToken;
     }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class LogoutRequest {
+        private String refreshToken;
+        private String fcmToken;
+    }
 }

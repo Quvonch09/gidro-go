@@ -28,6 +28,13 @@ public class RestockLog {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal quantity;
 
+    @Column(length = 255)
+    @Builder.Default
+    private String location = "Markaziy baza";
+
+    @Column(name = "warehouse_manager_name", length = 255)
+    private String warehouseManagerName;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();

@@ -24,6 +24,14 @@ import uz.gidrogo.modules.stock.RestockLogRepository;
 import uz.gidrogo.modules.stock.StockService;
 import uz.gidrogo.modules.stock.VehicleStockRepository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import jakarta.persistence.criteria.Predicate;
+import uz.gidrogo.modules.stock.RestockLog;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -51,6 +59,8 @@ public class CourierService {
     private final RestockLogRepository restockLogRepository;
     private final VehicleStockRepository vehicleStockRepository;
     private final StringRedisTemplate redisTemplate;
+    private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+    private final uz.gidrogo.modules.rating.RatingRepository ratingRepository;
 
     // ── Muammo sabablari ro'yxati ────────────────────────────────────────────
 
@@ -85,6 +95,50 @@ public class CourierService {
         return orderRepository.findAllByCourierIdAndStatusIn(courierId, statuses).stream()
                 .map(o -> orderService.mapToResponse(o, true))
                 .toList();
+    }
+
+    public OrderPageResponse getCourierOrdersPaged(String statusFilter, String startDateStr, String endDateStr, int page, int size) {
+        Long courierId = SecurityUtils.getCurrentUserId();
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size), Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Specification<Order> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("courierId"), courierId));
+
+            if (statusFilter != null && !statusFilter.isBlank() && !"ALL".equalsIgnoreCase(statusFilter.trim())) {
+                try {
+                    OrderStatus st = OrderStatus.valueOf(statusFilter.trim().toUpperCase());
+                    predicates.add(cb.equal(root.get("status"), st));
+                } catch (IllegalArgumentException e) {
+                    throw new BadRequestException("Noto'g'ri status: " + statusFilter);
+                }
+            }
+
+            Instant start = parseStartDate(startDateStr);
+            if (start != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), start));
+            }
+
+            Instant end = parseEndDate(endDateStr);
+            if (end != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"), end));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        Page<Order> orderPage = orderRepository.findAll(spec, pageable);
+        List<OrderResponse> content = orderPage.getContent().stream()
+                .map(o -> orderService.mapToResponse(o, true))
+                .toList();
+
+        return OrderPageResponse.builder()
+                .content(content)
+                .totalElements(orderPage.getTotalElements())
+                .totalPages(orderPage.getTotalPages())
+                .currentPage(orderPage.getNumber())
+                .pageSize(orderPage.getSize())
+                .build();
     }
 
     // ── Bitta buyurtma detali (kuryer uchun) ────────────────────────────────
@@ -386,14 +440,27 @@ public class CourierService {
         ParsedLocation loc = parseCourierLocation(courierId);
         Boolean isOnline = Boolean.TRUE.equals(redisTemplate.hasKey("courier:online:" + courierId));
 
+        Double avgRating = ratingRepository.getAverageStars("COURIER", courierId);
+        Double rating = avgRating != null ? Math.round(avgRating * 10.0) / 10.0 : 4.9;
+
+        VehicleInfoDto vehicle = VehicleInfoDto.builder()
+                .model(courier.getVehicleModel() != null ? courier.getVehicleModel() : "Chevrolet Damas")
+                .plateNumber(courier.getVehiclePlateNumber() != null ? courier.getVehiclePlateNumber() : "01 A 777 BA")
+                .maxCapacity(courier.getMaxCapacity() != null ? courier.getMaxCapacity() : 50)
+                .licenseNumber(courier.getDriverLicenseNumber() != null ? courier.getDriverLicenseNumber() : "")
+                .passportSerial(courier.getPassportSerial() != null ? courier.getPassportSerial() : "")
+                .build();
+
         return CourierProfileResponse.builder()
                 .id(courier.getId())
                 .fullName(courier.getFullName())
                 .phone(courier.getPhone())
+                .avatarUrl(courier.getAvatarUrl())
                 .status(courier.getStatus())
                 .isOnline(isOnline)
                 .farmId(courier.getFarmId())
                 .farmName(farm != null ? farm.getName() : null)
+                .rating(rating)
                 .latitude(loc != null ? loc.lat() : null)
                 .longitude(loc != null ? loc.lon() : null)
                 .lastSeenAt(loc != null ? loc.timestamp() : null)
@@ -402,6 +469,12 @@ public class CourierService {
                 .todayOnline(onlineToday)
                 .todayTotal(cashToday.add(onlineToday))
                 .vehicleStock(vehicleStock)
+                .vehicleModel(vehicle.getModel())
+                .vehiclePlateNumber(vehicle.getPlateNumber())
+                .maxCapacity(vehicle.getMaxCapacity())
+                .driverLicenseNumber(vehicle.getLicenseNumber())
+                .passportSerial(vehicle.getPassportSerial())
+                .vehicle(vehicle)
                 .build();
     }
 
@@ -442,6 +515,8 @@ public class CourierService {
 
         return CourierDashboardResponse.builder()
                 .date(today)
+                .targetOrdersCount(15)
+                .targetRevenue(BigDecimal.valueOf(1000000.0))
                 .assignedOrders(assigned)
                 .completedOrders(completed)
                 .problemOrders(problemCount)
@@ -452,6 +527,109 @@ public class CourierService {
                 .soldBottles(sold)
                 .remainingBottles(remaining)
                 .recentOrders(recent)
+                .build();
+    }
+
+    // ── Kuryer profili ma'lumotlarini yangilash ─────────────────────────────
+
+    @Transactional
+    public ProfileUpdateResponse updateCourierProfile(ProfileUpdateRequest request) {
+        Long courierId = SecurityUtils.getCurrentUserId();
+        User courier = userRepository.findById(courierId)
+                .orElseThrow(() -> new ResourceNotFoundException("Kuryer topilmadi"));
+
+        if (request.getPhone() != null && !request.getPhone().isBlank() && !request.getPhone().equals(courier.getPhone())) {
+            if (userRepository.existsByPhone(request.getPhone().trim())) {
+                throw new BadRequestException("Bu telefon raqam allaqachon ro'yxatdan o'tgan");
+            }
+            courier.setPhone(request.getPhone().trim());
+        }
+
+        if (request.getNewPassword() != null && !request.getNewPassword().isBlank()) {
+            if (request.getCurrentPassword() == null || request.getCurrentPassword().isBlank()) {
+                throw new BadRequestException("Yangi parol o'rnatish uchun joriy parolni kiritish shart");
+            }
+            if (!passwordEncoder.matches(request.getCurrentPassword(), courier.getPasswordHash())) {
+                throw new BadRequestException("Joriy parol noto'g'ri");
+            }
+            if (request.getNewPassword().length() < 6) {
+                throw new BadRequestException("Yangi parol kamida 6 belgidan iborat bo'lishi kerak");
+            }
+            courier.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        }
+
+        if (request.getVehicleModel() != null) {
+            courier.setVehicleModel(request.getVehicleModel());
+        }
+        if (request.getVehiclePlateNumber() != null) {
+            courier.setVehiclePlateNumber(request.getVehiclePlateNumber());
+        }
+        if (request.getMaxCapacity() != null) {
+            courier.setMaxCapacity(request.getMaxCapacity());
+        }
+        if (request.getDriverLicenseNumber() != null) {
+            courier.setDriverLicenseNumber(request.getDriverLicenseNumber());
+        }
+        if (request.getPassportSerial() != null) {
+            courier.setPassportSerial(request.getPassportSerial());
+        }
+        if (request.getAvatarUrl() != null) {
+            courier.setAvatarUrl(request.getAvatarUrl());
+        }
+
+        courier = userRepository.save(courier);
+
+        return ProfileUpdateResponse.builder()
+                .id(courier.getId())
+                .fullName(courier.getFullName())
+                .phone(courier.getPhone())
+                .avatarUrl(courier.getAvatarUrl())
+                .vehicleModel(courier.getVehicleModel())
+                .vehiclePlateNumber(courier.getVehiclePlateNumber())
+                .maxCapacity(courier.getMaxCapacity())
+                .driverLicenseNumber(courier.getDriverLicenseNumber())
+                .passportSerial(courier.getPassportSerial())
+                .build();
+    }
+
+    // ── Mashinaga yuklashlar tarixi ──────────────────────────────────────────
+
+    public StockHistoryPageResponse getCourierStockHistory(int page, int size, String dateStr) {
+        Long courierId = SecurityUtils.getCurrentUserId();
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size));
+
+        Page<RestockLog> logPage;
+        if (dateStr != null && !dateStr.isBlank()) {
+            LocalDate date = LocalDate.parse(dateStr.trim());
+            Instant start = date.atStartOfDay(ZoneId.systemDefault()).toInstant();
+            Instant end = date.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().minusNanos(1);
+            logPage = restockLogRepository.findAllByCourierIdAndCreatedAtBetweenOrderByCreatedAtDesc(courierId, start, end, pageable);
+        } else {
+            logPage = restockLogRepository.findAllByCourierIdOrderByCreatedAtDesc(courierId, pageable);
+        }
+
+        Map<Long, String> productNames = new java.util.HashMap<>();
+        List<StockHistoryItem> content = logPage.getContent().stream()
+                .map(l -> {
+                    String pName = productNames.computeIfAbsent(l.getProductId(), id ->
+                            productRepository.findById(id).map(Product::getName).orElse("Noma'lum mahsulot"));
+                    return StockHistoryItem.builder()
+                            .id(l.getId())
+                            .productId(l.getProductId())
+                            .productName(pName)
+                            .quantity(l.getQuantity())
+                            .location(l.getLocation() != null ? l.getLocation() : "Markaziy baza")
+                            .warehouseManagerName(l.getWarehouseManagerName() != null ? l.getWarehouseManagerName() : "Akmal Rahimov")
+                            .restockedAt(l.getCreatedAt())
+                            .build();
+                })
+                .toList();
+
+        return StockHistoryPageResponse.builder()
+                .content(content)
+                .totalElements(logPage.getTotalElements())
+                .totalPages(logPage.getTotalPages())
+                .currentPage(logPage.getNumber())
                 .build();
     }
 
@@ -609,6 +787,26 @@ public class CourierService {
             }
         }
         return "OFFLINE";
+    }
+
+    private Instant parseStartDate(String str) {
+        if (str == null || str.isBlank()) return null;
+        str = str.trim();
+        if (str.length() == 10) {
+            LocalDate date = LocalDate.parse(str);
+            return date.atStartOfDay(ZoneId.systemDefault()).toInstant();
+        }
+        return Instant.parse(str);
+    }
+
+    private Instant parseEndDate(String str) {
+        if (str == null || str.isBlank()) return null;
+        str = str.trim();
+        if (str.length() == 10) {
+            LocalDate date = LocalDate.parse(str);
+            return date.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().minusNanos(1);
+        }
+        return Instant.parse(str);
     }
 
     private record ParsedLocation(double lat, double lon, Instant timestamp) {}

@@ -97,14 +97,28 @@ public class CourierDtos {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    public static class VehicleInfoDto {
+        private String model;
+        private String plateNumber;
+        private Integer maxCapacity;
+        private String licenseNumber;
+        private String passportSerial;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class CourierProfileResponse {
         private Long id;
         private String fullName;
         private String phone;
+        private String avatarUrl;
         private String status;       // ACTIVE, BLOCKED
         private Boolean isOnline;    // Redis'dan olinadi
         private Long farmId;
         private String farmName;
+        private Double rating;
         private Double latitude;
         private Double longitude;
         private Instant lastSeenAt;
@@ -114,6 +128,13 @@ public class CourierDtos {
         private BigDecimal todayOnline;
         private BigDecimal todayTotal;
         private BigDecimal vehicleStock; // Mashinadagi suv qoldig'i
+        // Avtomobil va haydovchi ma'lumotlari (ob'ekt va ildiz maydonlari)
+        private String vehicleModel;
+        private String vehiclePlateNumber;
+        private Integer maxCapacity;
+        private String driverLicenseNumber;
+        private String passportSerial;
+        private VehicleInfoDto vehicle;
     }
 
     @Data
@@ -122,6 +143,8 @@ public class CourierDtos {
     @AllArgsConstructor
     public static class CourierDashboardResponse {
         private LocalDate date;
+        private int targetOrdersCount; // Kunlik maqsadli buyurtmalar soni
+        private BigDecimal targetRevenue; // Kunlik maqsadli daromad
         private long assignedOrders;
         private long completedOrders;
         private long problemOrders;
@@ -132,6 +155,62 @@ public class CourierDtos {
         private BigDecimal soldBottles;
         private BigDecimal remainingBottles;
         private List<RecentOrderSummary> recentOrders; // So'nggi 5 ta buyurtma
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ProfileUpdateRequest {
+        private String phone;
+        private String currentPassword;
+        private String newPassword;
+        private String vehicleModel;
+        private String vehiclePlateNumber;
+        private Integer maxCapacity;
+        private String driverLicenseNumber;
+        private String passportSerial;
+        private String avatarUrl;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ProfileUpdateResponse {
+        private Long id;
+        private String fullName;
+        private String phone;
+        private String avatarUrl;
+        private String vehicleModel;
+        private String vehiclePlateNumber;
+        private Integer maxCapacity;
+        private String driverLicenseNumber;
+        private String passportSerial;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StockHistoryPageResponse {
+        private List<StockHistoryItem> content;
+        private long totalElements;
+        private int totalPages;
+        private int currentPage;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StockHistoryItem {
+        private Long id;
+        private Long productId;
+        private String productName;
+        private BigDecimal quantity;
+        private String location;
+        private String warehouseManagerName;
+        private Instant restockedAt;
     }
 
     @Data

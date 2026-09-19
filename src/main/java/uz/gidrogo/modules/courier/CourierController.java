@@ -14,6 +14,9 @@ import uz.gidrogo.modules.order.dto.OrderDtos.*;
 import uz.gidrogo.modules.stock.StockService;
 import uz.gidrogo.modules.stock.dto.StockDtos.*;
 
+import uz.gidrogo.modules.notification.NotificationService;
+import uz.gidrogo.modules.notification.dto.NotificationDtos.*;
+
 import java.util.List;
 import java.util.Map;
 
@@ -25,6 +28,7 @@ public class CourierController {
 
     private final CourierService courierService;
     private final StockService stockService;
+    private final NotificationService notificationService;
 
     // ── Profil va Dashboard ───────────────────────────────────────────────────
 
@@ -32,6 +36,14 @@ public class CourierController {
     @Operation(summary = "Kuryer profili va bugungi statistikasi")
     public ResponseEntity<ApiResponse<CourierProfileResponse>> getProfile() {
         return ResponseEntity.ok(ApiResponse.ok(courierService.getCourierProfile()));
+    }
+
+    @PutMapping("/profile")
+    @Operation(summary = "Kuryer shaxsiy va avtomobil ma'lumotlarini tahrirlash")
+    public ResponseEntity<ApiResponse<ProfileUpdateResponse>> updateProfile(
+            @RequestBody ProfileUpdateRequest request) {
+        ProfileUpdateResponse updated = courierService.updateCourierProfile(request);
+        return ResponseEntity.ok(ApiResponse.ok("Profil ma'lumotlari muvaffaqiyatli yangilandi", updated));
     }
 
     @GetMapping("/dashboard")
@@ -53,11 +65,19 @@ public class CourierController {
     // ── Buyurtmalar ─────────────────────────────────────────────────────────
 
     @GetMapping("/orders")
-    @Operation(summary = "Buyurtmalar ro'yxati (status filter: ASSIGNED, ON_THE_WAY, NEARBY, DELIVERED, COMPLETED, PROBLEM)")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getMyOrders(
-            @Parameter(description = "Holat bo'yicha filter (bo'sh qolsa: ASSIGNED, ON_THE_WAY, NEARBY)")
-            @RequestParam(required = false) String status) {
-        return ResponseEntity.ok(ApiResponse.ok(courierService.getCourierOrders(status)));
+    @Operation(summary = "Buyurtmalar ro'yxati (sahifalangan, status va sana filtrlari bilan)")
+    public ResponseEntity<ApiResponse<OrderPageResponse>> getMyOrders(
+            @Parameter(description = "Holat bo'yicha filter (ASSIGNED, ON_THE_WAY, DELIVERED, COMPLETED, PROBLEM yoki ALL)")
+            @RequestParam(required = false) String status,
+            @Parameter(description = "Boshlanish sanasi (YYYY-MM-DD yoki ISO-8601)")
+            @RequestParam(required = false) String startDate,
+            @Parameter(description = "Tugash sanasi (YYYY-MM-DD yoki ISO-8601)")
+            @RequestParam(required = false) String endDate,
+            @Parameter(description = "Sahifa raqami (0 dan boshlanadi)")
+            @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Sahifadagi elementlar soni")
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.ok(courierService.getCourierOrdersPaged(status, startDate, endDate, page, size)));
     }
 
     @GetMapping("/orders/active")
@@ -168,5 +188,51 @@ public class CourierController {
     public ResponseEntity<ApiResponse<List<StockItemResponse>>> getMyVehicleStock() {
         Long courierId = SecurityUtils.getCurrentUserId();
         return ResponseEntity.ok(ApiResponse.ok(stockService.getVehicleStock(courierId)));
+    }
+
+    @GetMapping("/stock/history")
+    @Operation(summary = "Mashinaga suv yuklashlar tarixi jurnali (sahifalangan)")
+    public ResponseEntity<ApiResponse<StockHistoryPageResponse>> getStockHistory(
+            @Parameter(description = "Sana bo'yicha filter (YYYY-MM-DD)")
+            @RequestParam(required = false) String date,
+            @Parameter(description = "Sahifa raqami (0 dan boshlanadi)")
+            @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Sahifadagi elementlar soni")
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.ok("Yuklashlar tarixi",
+                courierService.getCourierStockHistory(page, size, date)));
+    }
+
+    // ── Bildirishnomalar (In-App Notifications Inbox) ─────────────────────────
+
+    @GetMapping("/notifications")
+    @Operation(summary = "Kuryer bildirishnomalari ro'yxati (sahifalangan)")
+    public ResponseEntity<ApiResponse<NotificationPageResponse>> getNotifications(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "false") boolean unreadOnly) {
+        return ResponseEntity.ok(ApiResponse.ok("Bildirishnomalar ro'yxati",
+                notificationService.getCourierNotifications(page, size, unreadOnly)));
+    }
+
+    @PatchMapping("/notifications/{id}/read")
+    @Operation(summary = "Bitta bildirishnomani o'qilgan deb belgilash")
+    public ResponseEntity<ApiResponse<NotificationReadResponse>> markNotificationAsRead(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok("Bildirishnoma o'qildi deb belgilandi",
+                notificationService.markAsRead(id)));
+    }
+
+    @PostMapping("/notifications/read-all")
+    @Operation(summary = "Barcha bildirishnomalarni birdan o'qilgan deb belgilash")
+    public ResponseEntity<ApiResponse<Boolean>> markAllNotificationsAsRead() {
+        notificationService.markAllAsRead();
+        return ResponseEntity.ok(ApiResponse.ok("Barcha bildirishnomalar o'qildi deb belgilandi", true));
+    }
+
+    @GetMapping("/notifications/unread-count")
+    @Operation(summary = "O'qilmagan bildirishnomalar soni (AppBar counter badge uchun)")
+    public ResponseEntity<ApiResponse<UnreadCountResponse>> getUnreadNotificationsCount() {
+        return ResponseEntity.ok(ApiResponse.ok(notificationService.getUnreadCount()));
     }
 }

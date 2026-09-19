@@ -44,6 +44,24 @@ public class User {
     @Builder.Default
     private String status = "ACTIVE"; // ACTIVE, BLOCKED, PENDING_APPROVAL
 
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
+    @Column(name = "vehicle_model", length = 100)
+    private String vehicleModel;
+
+    @Column(name = "vehicle_plate_number", length = 50)
+    private String vehiclePlateNumber;
+
+    @Column(name = "max_capacity")
+    private Integer maxCapacity;
+
+    @Column(name = "driver_license_number", length = 50)
+    private String driverLicenseNumber;
+
+    @Column(name = "passport_serial", length = 50)
+    private String passportSerial;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();

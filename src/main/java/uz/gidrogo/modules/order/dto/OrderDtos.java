@@ -112,4 +112,16 @@ public class OrderDtos {
         private Instant completedAt;
         private Instant createdAt;
     }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OrderPageResponse {
+        private List<OrderResponse> content;
+        private long totalElements;
+        private int totalPages;
+        private int currentPage;
+        private int pageSize;
+    }
 }

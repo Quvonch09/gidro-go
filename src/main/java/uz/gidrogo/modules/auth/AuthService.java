@@ -15,8 +15,12 @@ import uz.gidrogo.modules.client.ClientRepository;
 import uz.gidrogo.modules.farm.*;
 import uz.gidrogo.security.JwtTokenProvider;
 
+import org.springframework.data.redis.core.StringRedisTemplate;
+import uz.gidrogo.common.SecurityUtils;
+
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -30,6 +34,7 @@ public class AuthService {
     private final BossActivationRequestRepository activationRequestRepository;
     private final ClientRepository clientRepository;
     private final ClientAddressRepository clientAddressRepository;
+    private final StringRedisTemplate redisTemplate;
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
@@ -180,6 +185,9 @@ public class AuthService {
     @Transactional
     public AuthResponse refreshToken(RefreshTokenRequest request) {
         String refreshToken = request.getRefreshToken();
+        if (Boolean.TRUE.equals(redisTemplate.hasKey("blacklist:refresh:" + refreshToken.trim()))) {
+            throw new BadRequestException("Ushbu refresh token bekor qilingan (chiqib ketilgan)");
+        }
 
         if (!jwtTokenProvider.validateToken(refreshToken)) {
             throw new BadRequestException("Refresh token yaroqsiz yoki muddati o'tgan");
@@ -219,5 +227,36 @@ public class AuthService {
                 .farmId(farmId)
                 .status(user.getStatus())
                 .build();
+    }
+
+    @Transactional
+    public void logout(LogoutRequest request) {
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+
+        // 1. Agar refresh token uzatilgan bo'lsa, uni Redis'da blacklist qilamiz
+        if (request != null && request.getRefreshToken() != null && !request.getRefreshToken().isBlank()) {
+            try {
+                String token = request.getRefreshToken().trim();
+                // 30 kunlik muddat bilan blacklist qilamiz
+                redisTemplate.opsForValue().set("blacklist:refresh:" + token, "revoked", 30, TimeUnit.DAYS);
+
+                if (currentUserId == null && jwtTokenProvider.validateToken(token)) {
+                    Claims claims = jwtTokenProvider.getClaimsFromToken(token);
+                    currentUserId = Long.parseLong(claims.getSubject());
+                }
+            } catch (Exception e) {
+                // Redis offline bo'lsa ham xatolik bermaslik
+            }
+        }
+
+        // 2. Foydalanuvchining (ayniqsa kuryerning) FCM tokeni va Online holatini o'chirish
+        if (currentUserId != null) {
+            try {
+                redisTemplate.delete("courier:online:" + currentUserId);
+                redisTemplate.delete("courier:fcm:" + currentUserId);
+            } catch (Exception e) {
+                // Redis logs
+            }
+        }
     }
 }
