@@ -61,6 +61,8 @@ public class CourierService {
     private final StringRedisTemplate redisTemplate;
     private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
     private final uz.gidrogo.modules.rating.RatingRepository ratingRepository;
+    private final uz.gidrogo.modules.client.ClientRepository clientRepository;
+    private final uz.gidrogo.websocket.WebSocketEventPublisher eventPublisher;
 
     // ── Muammo sabablari ro'yxati ────────────────────────────────────────────
 
@@ -167,7 +169,9 @@ public class CourierService {
                 .changedBy(courierId)
                 .build());
 
-        return orderService.mapToResponse(order, true);
+        OrderResponse resp = orderService.mapToResponse(order, true);
+        eventPublisher.publishOrderStatusChanged(order.getFarmId(), courierId, order.getClientId(), resp);
+        return resp;
     }
 
     // ── Buyurtmani rad etish ─────────────────────────────────────────────────
@@ -203,7 +207,9 @@ public class CourierService {
                 .build());
 
         log.info("Kuryer {} buyurtmani {} rad etdi: {}", courierId, orderId, request.getReason());
-        return orderService.mapToResponse(order, false);
+        OrderResponse resp = orderService.mapToResponse(order, false);
+        eventPublisher.publishOrderStatusChanged(order.getFarmId(), courierId, order.getClientId(), resp);
+        return resp;
     }
 
     // ── Yo'lga chiqish ───────────────────────────────────────────────────────
@@ -224,7 +230,9 @@ public class CourierService {
                 .changedBy(courierId)
                 .build());
 
-        return orderService.mapToResponse(order, true);
+        OrderResponse resp = orderService.mapToResponse(order, true);
+        eventPublisher.publishOrderStatusChanged(order.getFarmId(), courierId, order.getClientId(), resp);
+        return resp;
     }
 
     // ── Lokatsiya yangilash ──────────────────────────────────────────────────
@@ -232,11 +240,25 @@ public class CourierService {
     @Transactional
     public LocationUpdateResponse updateLocation(LocationUpdateRequest request) {
         Long courierId = SecurityUtils.getCurrentUserId();
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return updateLocationForUser(courierId, farmId, request);
+    }
+
+    @Transactional
+    public LocationUpdateResponse updateLocationForUser(Long courierId, Long farmId, LocationUpdateRequest request) {
+        if (courierId == null) {
+            throw new BadRequestException("Kuryer aniqlanmadi");
+        }
         String locStr = request.getLatitude() + "," + request.getLongitude() + "," + System.currentTimeMillis();
         try {
             redisTemplate.opsForValue().set("courier:loc:" + courierId, locStr);
         } catch (Exception e) {
             log.warn("Redis lokatsiya saqlashda xatolik: {}", e.getMessage());
+        }
+
+        User courier = userRepository.findById(courierId).orElse(null);
+        if (farmId == null && courier != null) {
+            farmId = courier.getFarmId();
         }
 
         // NEARBY geofence tekshiruvi
@@ -263,6 +285,38 @@ public class CourierService {
 
                 nearbyOrderId = order.getId();
                 log.info("Order {} mijozga 500m yaqinlashdi -> NEARBY", order.getOrderNumber());
+
+                eventPublisher.publishOrderStatusChanged(order.getFarmId(), courierId, order.getClientId(), orderService.mapToResponse(order, false));
+            }
+        }
+
+        // Jonli xaritaga WebSocket translyatsiyasi (/topic/farm/{farmId}/couriers)
+        if (courier != null) {
+            try {
+                Order activeOrder = onTheWayOrders.isEmpty() ? null : onTheWayOrders.get(0);
+                CourierTrackingResponse tracking = CourierTrackingResponse.builder()
+                        .courierId(courierId)
+                        .fullName(courier.getFullName())
+                        .phone(courier.getPhone())
+                        .avatarUrl(courier.getAvatarUrl())
+                        .currentStatus(activeOrder != null ? activeOrder.getStatus().name() : "IDLE")
+                        .latitude(request.getLatitude())
+                        .longitude(request.getLongitude())
+                        .lastSeenAt(Instant.now())
+                        .vehicleModel(courier.getVehicleModel() != null ? courier.getVehicleModel() : "Chevrolet Damas")
+                        .vehiclePlateNumber(courier.getVehiclePlateNumber() != null ? courier.getVehiclePlateNumber() : "")
+                        .vehicleStock(vehicleStockRepository.sumQuantityByCourierId(courierId))
+                        .rating(4.9)
+                        .activeOrderId(activeOrder != null ? activeOrder.getId() : null)
+                        .activeOrderNumber(activeOrder != null ? activeOrder.getOrderNumber() : null)
+                        .activeOrderAddress(activeOrder != null ? activeOrder.getDeliveryAddress() : null)
+                        .activeOrderLatitude(activeOrder != null ? activeOrder.getLatitude() : null)
+                        .activeOrderLongitude(activeOrder != null ? activeOrder.getLongitude() : null)
+                        .build();
+
+                eventPublisher.publishCourierLocation(farmId, courierId, tracking);
+            } catch (Exception e) {
+                log.debug("WebSocket live location broadcast xatolik: {}", e.getMessage());
             }
         }
 
@@ -325,7 +379,10 @@ public class CourierService {
                 .changedBy(courierId)
                 .build());
 
-        return orderService.mapToResponse(order, true);
+        OrderResponse resp = orderService.mapToResponse(order, true);
+        eventPublisher.publishOrderStatusChanged(order.getFarmId(), courierId, order.getClientId(), resp);
+        eventPublisher.publishStockUpdated(order.getFarmId(), courierId, vehicleStockRepository.sumQuantityByCourierId(courierId));
+        return resp;
     }
 
     // ── Naqd to'lov tasdig'i ─────────────────────────────────────────────────
@@ -363,7 +420,9 @@ public class CourierService {
 
         financeService.recordIncome(order.getFarmId(), order.getTotalSum(), order.getId(), courierId, "Naqd buyurtma to'lovi");
 
-        return orderService.mapToResponse(order, true);
+        OrderResponse resp = orderService.mapToResponse(order, true);
+        eventPublisher.publishOrderStatusChanged(order.getFarmId(), courierId, order.getClientId(), resp);
+        return resp;
     }
 
     // ── Muammo haqida xabar ───────────────────────────────────────────────────
@@ -396,7 +455,9 @@ public class CourierService {
                 .changedBy(courierId)
                 .build());
 
-        return orderService.mapToResponse(order, true);
+        OrderResponse resp = orderService.mapToResponse(order, true);
+        eventPublisher.publishOrderStatusChanged(order.getFarmId(), courierId, order.getClientId(), resp);
+        return resp;
     }
 
     // ── Online/Offline holat almashtirish ────────────────────────────────────
@@ -404,18 +465,35 @@ public class CourierService {
     @Transactional
     public Map<String, Object> toggleOnlineStatus(StatusToggleRequest request) {
         Long courierId = SecurityUtils.getCurrentUserId();
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return toggleOnlineStatusForUser(courierId, farmId, request);
+    }
+
+    @Transactional
+    public Map<String, Object> toggleOnlineStatusForUser(Long courierId, Long farmId, StatusToggleRequest request) {
         String redisKey = "courier:online:" + courierId;
 
         boolean isOnline = Boolean.TRUE.equals(request.isOnlineEffective());
+        Map<String, Object> res;
         if (isOnline) {
             redisTemplate.opsForValue().set(redisKey, "true");
             log.info("Kuryer {} ONLINE bo'ldi", courierId);
-            return Map.of("status", "ONLINE", "message", "Siz endi onlinesiz");
+            res = Map.of("status", "ONLINE", "message", "Siz endi onlinesiz");
         } else {
             redisTemplate.delete(redisKey);
             log.info("Kuryer {} OFFLINE bo'ldi", courierId);
-            return Map.of("status", "OFFLINE", "message", "Siz offline holatga o'tdingiz");
+            res = Map.of("status", "OFFLINE", "message", "Siz offline holatga o'tdingiz");
         }
+
+        if (farmId == null) {
+            userRepository.findById(courierId).ifPresent(u -> {
+                eventPublisher.publishCourierStatusChanged(u.getFarmId(), courierId, isOnline ? "ONLINE" : "OFFLINE");
+            });
+        } else {
+            eventPublisher.publishCourierStatusChanged(farmId, courierId, isOnline ? "ONLINE" : "OFFLINE");
+        }
+
+        return res;
     }
 
     // ── Kuryer profili ───────────────────────────────────────────────────────
@@ -725,18 +803,45 @@ public class CourierService {
 
             Order activeOrder = activeOrders.isEmpty() ? null : activeOrders.get(0);
             String status = determineCourierStatus(courier.getId(), loc);
+            BigDecimal vehicleStock = vehicleStockRepository.sumQuantityByCourierId(courier.getId());
+            Double avgRating = ratingRepository.getAverageStars("COURIER", courier.getId());
+            Double rating = avgRating != null ? Math.round(avgRating * 10.0) / 10.0 : 4.9;
+
+            String clientName = null;
+            String clientPhone = null;
+            if (activeOrder != null && activeOrder.getClientId() != null) {
+                try {
+                    var client = clientRepository.findById(activeOrder.getClientId()).orElse(null);
+                    if (client != null && client.getUserId() != null) {
+                        var cUser = userRepository.findById(client.getUserId()).orElse(null);
+                        if (cUser != null) {
+                            clientName = cUser.getFullName();
+                            clientPhone = cUser.getPhone();
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
 
             trackingList.add(CourierTrackingResponse.builder()
                     .courierId(courier.getId())
                     .fullName(courier.getFullName())
                     .phone(courier.getPhone())
+                    .avatarUrl(courier.getAvatarUrl())
                     .currentStatus(status)
                     .latitude(loc != null ? loc.lat() : null)
                     .longitude(loc != null ? loc.lon() : null)
                     .lastSeenAt(loc != null ? loc.timestamp() : null)
+                    .vehicleModel(courier.getVehicleModel() != null ? courier.getVehicleModel() : "Chevrolet Damas")
+                    .vehiclePlateNumber(courier.getVehiclePlateNumber() != null ? courier.getVehiclePlateNumber() : "")
+                    .vehicleStock(vehicleStock)
+                    .rating(rating)
                     .activeOrderId(activeOrder != null ? activeOrder.getId() : null)
                     .activeOrderNumber(activeOrder != null ? activeOrder.getOrderNumber() : null)
                     .activeOrderAddress(activeOrder != null ? activeOrder.getDeliveryAddress() : null)
+                    .activeOrderLatitude(activeOrder != null ? activeOrder.getLatitude() : null)
+                    .activeOrderLongitude(activeOrder != null ? activeOrder.getLongitude() : null)
+                    .activeClientName(clientName)
+                    .activeClientPhone(clientPhone)
                     .build());
         }
 

@@ -95,6 +95,8 @@ public class OrderDtos {
         private Long courierId;
         private String courierName;
         private String courierPhone;
+        private String courierVehicleModel;
+        private String courierVehiclePlateNumber;
         private OrderStatus status;
         private PaymentMethod paymentMethod;
         private PaymentStatus paymentStatus;

@@ -21,6 +21,10 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
     List<Order> findAllByCourierIdAndStatusIn(Long courierId, List<OrderStatus> statuses);
     List<Order> findAllByFarmIdOrderByCreatedAtDesc(Long farmId);
     List<Order> findAllByFarmIdAndStatus(Long farmId, OrderStatus status);
+    List<Order> findAllByFarmIdAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(Long farmId, Instant since);
+    List<Order> findAllByFarmIdAndStatusAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(Long farmId, OrderStatus status, Instant since);
+    List<Order> findAllByFarmIdAndCreatedAtBetweenOrderByCreatedAtDesc(Long farmId, Instant start, Instant end);
+    List<Order> findAllByFarmIdAndStatusAndCreatedAtBetweenOrderByCreatedAtDesc(Long farmId, OrderStatus status, Instant start, Instant end);
     List<Order> findAllByCartGroupId(UUID cartGroupId);
     List<Order> findAllByStatusAndAssignedAtBefore(OrderStatus status, Instant timestamp);
     long countByFarmId(Long farmId);

@@ -18,6 +18,7 @@ import java.util.List;
 public class NotificationService {
 
     private final CourierNotificationRepository notificationRepository;
+    private final uz.gidrogo.websocket.WebSocketEventPublisher eventPublisher;
 
     public NotificationPageResponse getCourierNotifications(int page, int size, boolean unreadOnly) {
         Long courierId = SecurityUtils.getCurrentUserId();
@@ -83,7 +84,8 @@ public class NotificationService {
                     .referenceId(referenceId)
                     .isRead(false)
                     .build();
-            notificationRepository.save(notification);
+            notification = notificationRepository.save(notification);
+            eventPublisher.publishNotification(courierId, mapToItem(notification));
         } catch (Exception e) {
             log.warn("Bildirishnoma saqlashda xatolik courier {}: {}", courierId, e.getMessage());
         }

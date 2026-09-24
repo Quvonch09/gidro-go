@@ -256,13 +256,22 @@ public class CourierDtos {
         private Long courierId;
         private String fullName;
         private String phone;
+        private String avatarUrl;
         private String currentStatus; // IDLE, ON_THE_WAY, NEARBY, OFFLINE
         private Double latitude;
         private Double longitude;
         private java.time.Instant lastSeenAt;
+        private String vehicleModel;
+        private String vehiclePlateNumber;
+        private BigDecimal vehicleStock;
+        private Double rating;
         private Long activeOrderId;
         private String activeOrderNumber;
         private String activeOrderAddress;
+        private BigDecimal activeOrderLatitude;
+        private BigDecimal activeOrderLongitude;
+        private String activeClientName;
+        private String activeClientPhone;
     }
 
     @Data

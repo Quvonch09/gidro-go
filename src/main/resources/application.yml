@@ -62,9 +62,9 @@ jwt:
 
 telegram:
   bot:
-    token: "7777777777:AAFakeTokenForGidroGoBotTelegramOtp"
+    token: "8612254072:AAGe_T4kzilZlTVUyUFWpoBEpvGEe7lUQ_g"
     bot-username: "GidroGoOtpBot"
-    mock-mode: true   # Agar true bo'lsa yoki token bo'sh bo'lsa, konsolga va javobga log qilinadi
+    mock-mode: false   # Agar true bo'lsa yoki token bo'sh bo'lsa, konsolga va javobga log qilinadi
 
 app:
   courier:

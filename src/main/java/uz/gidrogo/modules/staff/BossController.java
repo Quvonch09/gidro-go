@@ -16,6 +16,9 @@ import uz.gidrogo.modules.finance.FinanceService;
 import uz.gidrogo.modules.finance.dto.FinanceDtos.FinanceSummaryResponse;
 import uz.gidrogo.modules.finance.dto.FinanceDtos.DashboardResponse;
 import uz.gidrogo.modules.order.OrderRepository;
+import uz.gidrogo.modules.order.OrderService;
+import uz.gidrogo.modules.order.OrderStatus;
+import uz.gidrogo.modules.order.dto.OrderDtos.OrderResponse;
 import uz.gidrogo.modules.staff.StaffDtos.*;
 
 import org.springframework.format.annotation.DateTimeFormat;
@@ -33,6 +36,7 @@ public class BossController {
     private final StaffService staffService;
     private final FinanceService financeService;
     private final OrderRepository orderRepository;
+    private final OrderService orderService;
     private final CourierService courierService;
     private final ClientService clientService;
 
@@ -41,6 +45,34 @@ public class BossController {
     public ResponseEntity<ApiResponse<DashboardResponse>> getDashboard() {
         Long farmId = SecurityUtils.getCurrentFarmId();
         return ResponseEntity.ok(ApiResponse.ok(financeService.getDashboard(farmId)));
+    }
+
+    @GetMapping("/orders")
+    @Operation(summary = "Fermaning buyurtmalari ro'yxati (Buyurtmalar bo'limida default: FAQAT BUGUNGI buyurtmalar)")
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getOrders(
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) Boolean todayOnly,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false, defaultValue = "false") boolean all) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.getManagerOrders(status, todayOnly, date, startDate, endDate, all)));
+    }
+
+    @GetMapping("/orders/today")
+    @Operation(summary = "Faqat bugungi buyurtmalar ro'yxati")
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getTodayOrders(
+            @RequestParam(required = false) OrderStatus status) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.getManagerOrders(status, true, null, null, null, false)));
+    }
+
+    @GetMapping("/orders/all")
+    @Operation(summary = "Barcha buyurtmalar ro'yxati (tarixiy)")
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getAllOrders(
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.getManagerOrders(status, false, null, startDate, endDate, true)));
     }
 
     @PostMapping("/staff")

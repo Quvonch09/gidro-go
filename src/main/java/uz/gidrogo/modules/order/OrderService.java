@@ -22,6 +22,8 @@ import uz.gidrogo.modules.product.ProductRepository;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -38,6 +40,7 @@ public class OrderService {
     private final ClientAddressRepository clientAddressRepository;
     private final UserRepository userRepository;
     private final AssignmentService assignmentService;
+    private final uz.gidrogo.websocket.WebSocketEventPublisher eventPublisher;
 
     /**
      * 6.4: Ko'p-fermali savatni fermalar bo'yicha alohida buyurtmalarga ajratish va rasmiylashtirish
@@ -163,6 +166,9 @@ public class OrderService {
             assignmentService.assignOrderToCourier(order);
 
             createdOrders.add(order);
+            try {
+                eventPublisher.publishOrderCreated(farmId, mapToResponse(order, false));
+            } catch (Exception ignored) {}
         }
 
         return createdOrders.stream()
@@ -195,7 +201,12 @@ public class OrderService {
                 .changedBy(userId)
                 .build());
 
-        return mapToResponse(order, false);
+        OrderResponse response = mapToResponse(order, false);
+        try {
+            eventPublisher.publishOrderStatusChanged(order.getFarmId(), order.getCourierId(), order.getClientId(), response);
+        } catch (Exception ignored) {}
+
+        return response;
     }
 
     @Transactional
@@ -223,7 +234,12 @@ public class OrderService {
                 .changedBy(SecurityUtils.getCurrentUserId())
                 .build());
 
-        return mapToResponse(order, false);
+        OrderResponse response = mapToResponse(order, false);
+        try {
+            eventPublisher.publishOrderAssigned(order.getFarmId(), newCourierId, response);
+        } catch (Exception ignored) {}
+
+        return response;
     }
 
     public List<OrderResponse> getClientOrders() {
@@ -237,16 +253,77 @@ public class OrderService {
     }
 
     public List<OrderResponse> getManagerOrders(OrderStatus status) {
+        return getManagerOrders(status, true, null, null, null, false);
+    }
+
+    public List<OrderResponse> getManagerOrders(OrderStatus status, Boolean todayOnly, LocalDate date, String startDateStr, String endDateStr, boolean all) {
         Long farmId = SecurityUtils.getCurrentFarmId();
         if (farmId == null) {
             throw new BadRequestException("Ferma topilmadi");
         }
 
-        List<Order> orders = status != null ?
-                orderRepository.findAllByFarmIdAndStatus(farmId, status) :
-                orderRepository.findAllByFarmIdOrderByCreatedAtDesc(farmId);
+        ZoneId zone = ZoneId.of("Asia/Tashkent");
+        List<Order> orders;
+
+        if (all || Boolean.FALSE.equals(todayOnly)) {
+            // "Barcha buyurtmalar" (tarixiy barcha buyurtmalar yoki sana filtri bilan)
+            if (startDateStr != null || endDateStr != null) {
+                Instant start = parseStartDate(startDateStr);
+                Instant end = parseEndDate(endDateStr);
+                if (start != null && end != null) {
+                    orders = status != null ?
+                            orderRepository.findAllByFarmIdAndStatusAndCreatedAtBetweenOrderByCreatedAtDesc(farmId, status, start, end) :
+                            orderRepository.findAllByFarmIdAndCreatedAtBetweenOrderByCreatedAtDesc(farmId, start, end);
+                } else if (start != null) {
+                    orders = status != null ?
+                            orderRepository.findAllByFarmIdAndStatusAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(farmId, status, start) :
+                            orderRepository.findAllByFarmIdAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(farmId, start);
+                } else {
+                    orders = status != null ?
+                            orderRepository.findAllByFarmIdAndStatus(farmId, status) :
+                            orderRepository.findAllByFarmIdOrderByCreatedAtDesc(farmId);
+                }
+            } else {
+                orders = status != null ?
+                        orderRepository.findAllByFarmIdAndStatus(farmId, status) :
+                        orderRepository.findAllByFarmIdOrderByCreatedAtDesc(farmId);
+            }
+        } else if (date != null) {
+            // Berilgan aniq sana bo'yicha buyurtmalar
+            Instant start = date.atStartOfDay(zone).toInstant();
+            Instant end = date.plusDays(1).atStartOfDay(zone).toInstant().minusNanos(1);
+            orders = status != null ?
+                    orderRepository.findAllByFarmIdAndStatusAndCreatedAtBetweenOrderByCreatedAtDesc(farmId, status, start, end) :
+                    orderRepository.findAllByFarmIdAndCreatedAtBetweenOrderByCreatedAtDesc(farmId, start, end);
+        } else {
+            // Default: "Buyurtmalar" bo'limida FAQAT BUGUNGI buyurtmalar ko'rinadi!
+            Instant startOfToday = LocalDate.now(zone).atStartOfDay(zone).toInstant();
+            orders = status != null ?
+                    orderRepository.findAllByFarmIdAndStatusAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(farmId, status, startOfToday) :
+                    orderRepository.findAllByFarmIdAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(farmId, startOfToday);
+        }
 
         return orders.stream().map(o -> mapToResponse(o, false)).toList();
+    }
+
+    private Instant parseStartDate(String str) {
+        if (str == null || str.isBlank()) return null;
+        str = str.trim();
+        if (str.length() == 10) {
+            LocalDate date = LocalDate.parse(str);
+            return date.atStartOfDay(ZoneId.of("Asia/Tashkent")).toInstant();
+        }
+        return Instant.parse(str);
+    }
+
+    private Instant parseEndDate(String str) {
+        if (str == null || str.isBlank()) return null;
+        str = str.trim();
+        if (str.length() == 10) {
+            LocalDate date = LocalDate.parse(str);
+            return date.plusDays(1).atStartOfDay(ZoneId.of("Asia/Tashkent")).toInstant().minusNanos(1);
+        }
+        return Instant.parse(str);
     }
 
     public List<OrderResponse> getClientOrdersForManager(Long clientId) {
@@ -301,6 +378,8 @@ public class OrderService {
                 .courierId(order.getCourierId())
                 .courierName(courierUser != null ? courierUser.getFullName() : null)
                 .courierPhone(courierUser != null ? courierUser.getPhone() : null)
+                .courierVehicleModel(courierUser != null ? courierUser.getVehicleModel() : null)
+                .courierVehiclePlateNumber(courierUser != null ? courierUser.getVehiclePlateNumber() : null)
                 .status(order.getStatus())
                 .paymentMethod(order.getPaymentMethod())
                 .paymentStatus(order.getPaymentStatus())

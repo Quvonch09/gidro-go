@@ -87,9 +87,31 @@ public class ManagerController {
     }
 
     @GetMapping("/orders")
-    @Operation(summary = "Fermaning buyurtmalari ro'yxati (status filter bilan)")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getOrders(@RequestParam(required = false) OrderStatus status) {
-        return ResponseEntity.ok(ApiResponse.ok(orderService.getManagerOrders(status)));
+    @Operation(summary = "Fermaning buyurtmalari ro'yxati (Buyurtmalar bo'limida default: FAQAT BUGUNGI buyurtmalar)")
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getOrders(
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) Boolean todayOnly,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false, defaultValue = "false") boolean all) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.getManagerOrders(status, todayOnly, date, startDate, endDate, all)));
+    }
+
+    @GetMapping("/orders/today")
+    @Operation(summary = "Faqat bugungi buyurtmalar ro'yxati")
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getTodayOrders(
+            @RequestParam(required = false) OrderStatus status) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.getManagerOrders(status, true, null, null, null, false)));
+    }
+
+    @GetMapping("/orders/all")
+    @Operation(summary = "Barcha buyurtmalar ro'yxati (tarixiy)")
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getAllOrders(
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.getManagerOrders(status, false, null, startDate, endDate, true)));
     }
 
     @PostMapping("/orders/{id}/reassign")
