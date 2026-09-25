@@ -21,6 +21,22 @@ public class AuthDtos {
         private String password;
     }
 
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CheckPhoneRequest {
+        @NotBlank(message = "Telefon raqam kiritilishi shart")
+        private String phone;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CheckPhoneResponse {
+        private String status; // "NEW", "CLIENT", "COURIER"
+        private String message;
+    }
 
     @Data
     @NoArgsConstructor
@@ -29,7 +45,20 @@ public class AuthDtos {
         @NotBlank(message = "Telefon raqam kiritilishi shart")
         private String phone;
 
+        private String channel; // "SMS" (default) yoki "TELEGRAM"
+
         private String telegramChatId;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OtpSendResponse {
+        private String phone;
+        private int expiresInSeconds;
+        private int resendAfterSeconds;
+        private String debugCode;
     }
 
     @Data
@@ -44,28 +73,38 @@ public class AuthDtos {
     }
 
     @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OtpVerifyResponse {
+        private String phone;
+        private String verificationToken;
+        private boolean verified;
+    }
+
+    @Data
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ClientRegisterRequest {
-        @NotNull(message = "Doimiy xizmat ko'rsatuvchi firma (farmId) tanlanishi shart")
-        private Long farmId;
+        @NotBlank(message = "Telefon raqam kiritilishi shart")
+        private String phone;
+
+        private String verificationToken;
 
         @NotBlank(message = "Ism-familiya kiritilishi shart")
         private String fullName;
 
-        @NotBlank(message = "Telefon raqam kiritilishi shart")
-        private String phone;
-
         @NotBlank(message = "Parol kiritilishi shart")
         private String password;
+
+        @NotNull(message = "Doimiy xizmat ko'rsatuvchi firma (farmId) tanlanishi shart")
+        private Long farmId;
 
         @NotBlank(message = "Manzil kiritilishi shart")
         private String address;
 
-        @NotNull(message = "Latitude kiritilishi shart")
         private Double latitude;
 
-        @NotNull(message = "Longitude kiritilishi shart")
         private Double longitude;
     }
 
@@ -78,8 +117,10 @@ public class AuthDtos {
         private String refreshToken;
         private Long userId;
         private String fullName;
+        private String phone;
         private Role role;
         private Long farmId;
+        private String farmName;
         private String status;
     }
 

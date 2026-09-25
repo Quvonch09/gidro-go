@@ -91,4 +91,32 @@ public class JwtTokenProvider {
             return false;
         }
     }
+
+    public String generateVerificationToken(String phone) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes
+
+        return Jwts.builder()
+                .subject(phone)
+                .claim("type", "VERIFICATION")
+                .claim("phone", phone)
+                .issuedAt(now)
+                .expiration(expiryDate)
+                .signWith(secretKey)
+                .compact();
+    }
+
+    public boolean validateVerificationToken(String token, String phone) {
+        if (token == null || token.isBlank()) return false;
+        try {
+            Claims claims = getClaimsFromToken(token);
+            String type = claims.get("type", String.class);
+            String sub = claims.getSubject();
+            String claimPhone = claims.get("phone", String.class);
+            boolean phoneMatches = phone == null || phone.equals(sub) || phone.equals(claimPhone);
+            return "VERIFICATION".equals(type) && phoneMatches;
+        } catch (Exception e) {
+            return false;
+        }
+    }
 }

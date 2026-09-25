@@ -29,10 +29,15 @@ public class ClientController {
     private final OrderService orderService;
     private final RatingService ratingService;
 
-    @GetMapping("/available-farms")
-    @Operation(summary = "Ro'yxatdan o'tish yoki tanlash uchun mavjud faol suv firmalari ro'yxati")
-    public ResponseEntity<ApiResponse<List<AvailableFarmResponse>>> getAvailableFarms() {
-        return ResponseEntity.ok(ApiResponse.ok(clientService.getAvailableFarms()));
+    @GetMapping({"/farms/available", "/available-farms"})
+    @Operation(summary = "Ro'yxatdan o'tish yoki tanlash uchun mavjud faol suv firmalari ro'yxati (GPS va manzil filtri bilan)")
+    public ResponseEntity<ApiResponse<List<AvailableFarmResponse>>> getAvailableFarms(
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lon,
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) String district
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(clientService.getAvailableFarms(lat, lon, city, district)));
     }
 
     @GetMapping("/my-farm")

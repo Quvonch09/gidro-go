@@ -18,7 +18,15 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final OtpService otpService;
     private final TelegramOtpService telegramOtpService;
+
+    @PostMapping("/check-phone")
+    @Operation(summary = "Telefon raqami holatini tekshirish (NEW, CLIENT, COURIER)")
+    public ResponseEntity<ApiResponse<CheckPhoneResponse>> checkPhone(@Valid @RequestBody CheckPhoneRequest request) {
+        CheckPhoneResponse response = authService.checkPhone(request);
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
 
     @PostMapping("/login")
     @Operation(summary = "Yagona kirish API (barcha rollar uchun: SuperAdmin, Boss, Manager, Courier, Client)")
@@ -27,22 +35,18 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.ok("Muvaffaqiyatli kirildi", response));
     }
 
-
-    @PostMapping("/client/otp/send")
-    @Operation(summary = "Mijozga Telegram orqali OTP kod yuborish")
-    public ResponseEntity<ApiResponse<Map<String, String>>> sendOtp(@Valid @RequestBody OtpSendRequest request) {
-        String code = telegramOtpService.sendOtp(request.getPhone(), request.getTelegramChatId());
-        Map<String, String> data = telegramOtpService.isMockMode() ?
-                Map.of("phone", request.getPhone(), "debugCode", code) :
-                Map.of("phone", request.getPhone());
-        return ResponseEntity.ok(ApiResponse.ok("Tasdiqlash kodi Telegram bot orqali yuborildi", data));
+    @PostMapping({"/otp/send", "/client/otp/send"})
+    @Operation(summary = "SMS yoki Telegram orqali 6 xonali tasdiqlash kodini (OTP) yuborish")
+    public ResponseEntity<ApiResponse<OtpSendResponse>> sendOtp(@Valid @RequestBody OtpSendRequest request) {
+        OtpSendResponse response = otpService.sendOtp(request);
+        return ResponseEntity.ok(ApiResponse.ok("Tasdiqlash kodi yuborildi", response));
     }
 
-    @PostMapping("/client/otp/verify")
-    @Operation(summary = "Mijoz OTP kodini tasdiqlash")
-    public ResponseEntity<ApiResponse<Map<String, Boolean>>> verifyOtp(@Valid @RequestBody OtpVerifyRequest request) {
-        boolean ok = telegramOtpService.verifyOtp(request.getPhone(), request.getCode());
-        return ResponseEntity.ok(ApiResponse.ok("Kod tasdiqlandi", Map.of("verified", ok)));
+    @PostMapping({"/otp/verify", "/client/otp/verify"})
+    @Operation(summary = "OTP kodini tekshirish va bir martalik verificationToken olish")
+    public ResponseEntity<ApiResponse<OtpVerifyResponse>> verifyOtp(@Valid @RequestBody OtpVerifyRequest request) {
+        OtpVerifyResponse response = otpService.verifyOtp(request);
+        return ResponseEntity.ok(ApiResponse.ok("Telefon raqami muvaffaqiyatli tasdiqlandi", response));
     }
 
     @PostMapping("/client/register")

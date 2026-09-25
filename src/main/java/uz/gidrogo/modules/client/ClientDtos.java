@@ -65,6 +65,12 @@ public class ClientDtos {
         private String address;
         private String logoUrl;
         private double rating;
+        private Integer reviewCount;
+        private Double distanceKm;
+        private Integer deliveryTimeMinutes;
+        private Double latitude;
+        private Double longitude;
+        private Boolean isOpen;
     }
 
     @Data

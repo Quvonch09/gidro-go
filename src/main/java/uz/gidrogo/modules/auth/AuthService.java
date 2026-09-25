@@ -35,6 +35,36 @@ public class AuthService {
     private final ClientRepository clientRepository;
     private final ClientAddressRepository clientAddressRepository;
     private final StringRedisTemplate redisTemplate;
+    private final OtpService otpService;
+
+    public CheckPhoneResponse checkPhone(CheckPhoneRequest request) {
+        String phone = OtpService.normalizePhone(request.getPhone());
+        Optional<User> userOpt = userRepository.findByUsernameOrPhone(phone, phone);
+        if (userOpt.isEmpty()) {
+            return CheckPhoneResponse.builder()
+                    .status("NEW")
+                    .message("Raqam ro'yxatdan o'tmagan, OTP yuborish mumkin")
+                    .build();
+        }
+
+        User user = userOpt.get();
+        if (user.getRole() == Role.COURIER) {
+            return CheckPhoneResponse.builder()
+                    .status("COURIER")
+                    .message("Kuryer sifatida ro'yxatdan o'tgan")
+                    .build();
+        } else if (user.getRole() == Role.CLIENT) {
+            return CheckPhoneResponse.builder()
+                    .status("CLIENT")
+                    .message("Mijoz sifatida ro'yxatdan o'tgan")
+                    .build();
+        } else {
+            return CheckPhoneResponse.builder()
+                    .status(user.getRole().name())
+                    .message(user.getRole().name() + " sifatida ro'yxatdan o'tgan")
+                    .build();
+        }
+    }
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
@@ -112,38 +142,50 @@ public class AuthService {
         String accessToken = jwtTokenProvider.generateAccessToken(user.getId(), userIdentifier, user.getRole(), farmId);
         String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId());
 
+        String farmName = null;
+        if (farmId != null) {
+            farmName = farmRepository.findById(farmId).map(Farm::getName).orElse(null);
+        }
+
         return AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
                 .userId(user.getId())
                 .fullName(user.getFullName())
+                .phone(user.getPhone())
                 .role(user.getRole())
                 .farmId(farmId)
+                .farmName(farmName)
                 .status(user.getStatus())
                 .build();
     }
 
     @Transactional
     public AuthResponse registerClient(ClientRegisterRequest request) {
-        if (!telegramOtpService.isPhoneVerified(request.getPhone())) {
-            throw new BadRequestException("Telefon raqami Telegram orqali tasdiqlanmagan");
+        String phone = OtpService.normalizePhone(request.getPhone());
+
+        boolean verified = otpService.validateAndConsumeVerificationToken(phone, request.getVerificationToken())
+                || telegramOtpService.isPhoneVerified(phone);
+
+        if (!verified) {
+            throw new BadRequestException("Raqam tasdiqlanmagan yoki tasdiqlash tokeni eskirgan");
         }
 
-        if (userRepository.existsByPhone(request.getPhone())) {
-            throw new BadRequestException("Ushbu telefon raqami allaqachon ro'yxatdan o'tgan");
+        if (userRepository.existsByPhone(phone)) {
+            throw new uz.gidrogo.common.ConflictException("Bu raqam bilan allaqachon foydalanuvchi mavjud");
         }
 
         Farm farm = farmRepository.findById(request.getFarmId())
                 .orElseThrow(() -> new BadRequestException("Tanlangan firma topilmadi"));
 
-        if (farm.getStatus() == FarmStatus.BLOCKED) {
+        if (farm.getStatus() == FarmStatus.BLOCKED || farm.getStatus() == FarmStatus.INACTIVE) {
             throw new BadRequestException("Tanlangan firma vaqtincha yangi mijozlarni qabul qilmaydi");
         }
 
         User user = User.builder()
                 .farmId(farm.getId())
                 .fullName(request.getFullName())
-                .phone(request.getPhone())
+                .phone(phone)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .role(Role.CLIENT)
                 .status("ACTIVE")
@@ -158,12 +200,15 @@ public class AuthService {
                 .build();
         client = clientRepository.save(client);
 
+        BigDecimal lat = request.getLatitude() != null ? BigDecimal.valueOf(request.getLatitude()) : BigDecimal.ZERO;
+        BigDecimal lon = request.getLongitude() != null ? BigDecimal.valueOf(request.getLongitude()) : BigDecimal.ZERO;
+
         ClientAddress address = ClientAddress.builder()
                 .clientId(client.getId())
                 .label("Asosiy manzil")
                 .address(request.getAddress())
-                .latitude(BigDecimal.valueOf(request.getLatitude()))
-                .longitude(BigDecimal.valueOf(request.getLongitude()))
+                .latitude(lat)
+                .longitude(lon)
                 .isDefault(true)
                 .build();
         clientAddressRepository.save(address);
@@ -176,8 +221,10 @@ public class AuthService {
                 .refreshToken(refreshToken)
                 .userId(user.getId())
                 .fullName(user.getFullName())
+                .phone(user.getPhone())
                 .role(user.getRole())
                 .farmId(farm.getId())
+                .farmName(farm.getName())
                 .status(user.getStatus())
                 .build();
     }
