@@ -122,6 +122,22 @@ public class ClientService {
         List<AvailableFarmResponse> list = new ArrayList<>();
 
         for (Farm farm : activeFarms) {
+            String fullFarmText = (farm.getName() != null ? farm.getName() : "") + " " + (farm.getAddress() != null ? farm.getAddress() : "");
+
+            // 1. Qat'iy filtrlash: agar city berilgan bo'lsa, mos kelmasa tashlab o'tish
+            if (city != null && !city.isBlank()) {
+                if (!matchesLocation(fullFarmText, city)) {
+                    continue;
+                }
+            }
+
+            // 2. Qat'iy filtrlash: agar district berilgan bo'lsa, mos kelmasa tashlab o'tish
+            if (district != null && !district.isBlank()) {
+                if (!matchesLocation(fullFarmText, district)) {
+                    continue;
+                }
+            }
+
             Double distanceKm = null;
             Integer deliveryTimeMinutes = 35;
 
@@ -160,6 +176,57 @@ public class ClientService {
         }
 
         return list;
+    }
+
+    private boolean matchesLocation(String farmText, String searchLocation) {
+        if (searchLocation == null || searchLocation.isBlank()) {
+            return true;
+        }
+        if (farmText == null || farmText.isBlank()) {
+            return false;
+        }
+
+        String cleanSearch = cleanLocationString(searchLocation);
+        String cleanFarm = farmText.toLowerCase();
+
+        if (cleanSearch.isEmpty()) {
+            return true;
+        }
+
+        // To'g'ridan-to'g'ri o'z ichiga olgan bo'lsa
+        if (cleanFarm.contains(cleanSearch)) {
+            return true;
+        }
+
+        // Toshkent / Tashkent sinonimi
+        if (cleanSearch.equals("toshkent") || cleanSearch.equals("tashkent")) {
+            return cleanFarm.contains("toshkent") || cleanFarm.contains("tashkent");
+        }
+
+        // Bir necha so'z kiritilgan bo'lsa (masalan: "Chilonzor tumani", "Registon ko'chasi")
+        String[] tokens = cleanSearch.split("\\s+");
+        for (String token : tokens) {
+            if (token.length() >= 3) {
+                if (cleanFarm.contains(token)) {
+                    return true;
+                }
+                // Token uchun ham toshkent / tashkent tekshiruvi
+                if ((token.equals("toshkent") || token.equals("tashkent")) &&
+                    (cleanFarm.contains("toshkent") || cleanFarm.contains("tashkent"))) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private String cleanLocationString(String input) {
+        if (input == null) return "";
+        return input.toLowerCase()
+                .replaceAll("\\b(sh|sh\\.|shahri|shahar|tumani|tuman|viloyati|viloyat|region|oblast|mfy|ko'chasi|ko‘chasi|massivi)\\b", "")
+                .replaceAll("[^a-z0-9а-яёўқғҳ\\s]", " ")
+                .trim();
     }
 
     public FarmResponse getMyFarm() {
