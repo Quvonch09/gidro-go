@@ -27,6 +27,7 @@ public class OtpService {
     private final StringRedisTemplate redisTemplate;
     private final JwtTokenProvider jwtTokenProvider;
     private final TelegramOtpRepository telegramOtpRepository;
+    private final TelegramBotService telegramBotService;
     private final RestTemplate restTemplate = new RestTemplate();
     private final SecureRandom random = new SecureRandom();
 
@@ -89,9 +90,22 @@ public class OtpService {
 
         // 5. Channel dispatch: SMS or TELEGRAM
         String channel = request.getChannel() != null ? request.getChannel().trim().toUpperCase() : "SMS";
-        if ("TELEGRAM".equals(channel)) {
-            sendTelegramMessage(phone, code, request.getTelegramChatId());
-        } else {
+
+        String targetChatId = request.getTelegramChatId();
+        if (targetChatId == null || targetChatId.isBlank()) {
+            targetChatId = telegramBotService.getChatIdByPhone(phone);
+        }
+
+        if ("TELEGRAM".equals(channel) || targetChatId != null) {
+            if (targetChatId != null && !targetChatId.isBlank()) {
+                telegramBotService.sendOtpMessage(targetChatId, code);
+                log.info("[TELEGRAM OTP SENT] Phone: {}, Code: {}, ChatId: {}", phone, code, targetChatId);
+            } else {
+                log.warn("[TELEGRAM OTP PENDING] No chatId linked yet for phone {}. Code [{}] ready in bot when user shares contact.", phone, code);
+            }
+        }
+
+        if (!"TELEGRAM".equals(channel)) {
             // SMS Gateway dispatch
             log.info("[SMS GATEWAY] Sending 6-digit OTP code [{}] to phone [{}]", code, phone);
         }
