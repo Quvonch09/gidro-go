@@ -69,10 +69,19 @@ public class AuthService {
     @Transactional
     public AuthResponse login(LoginRequest request) {
         String identifier = "";
-        if (request.getPhone() != null && !request.getPhone().isBlank()) {
-            identifier = request.getPhone().trim();
+        String reqLogin = (request.getLogin() != null && !request.getLogin().isBlank() && !request.getLogin().equalsIgnoreCase("string"))
+                ? request.getLogin().trim() : null;
+        String reqPhone = (request.getPhone() != null && !request.getPhone().isBlank() && !request.getPhone().equalsIgnoreCase("string"))
+                ? request.getPhone().trim() : null;
+
+        if (reqLogin != null) {
+            identifier = reqLogin;
+        } else if (reqPhone != null) {
+            identifier = reqPhone;
         } else if (request.getLogin() != null && !request.getLogin().isBlank()) {
             identifier = request.getLogin().trim();
+        } else if (request.getPhone() != null && !request.getPhone().isBlank()) {
+            identifier = request.getPhone().trim();
         }
         if (identifier.isBlank()) {
             throw new BadRequestException("Telefon raqam yoki login kiritilishi shart");
