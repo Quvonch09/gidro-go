@@ -45,6 +45,15 @@ public class Farm {
     @Column(name = "boss_user_id")
     private Long bossUserId;
 
+    @Column(length = 100)
+    private String city;
+
+    @Column(length = 100)
+    private String district;
+
+    @Column(name = "coverage_areas", columnDefinition = "TEXT")
+    private String coverageAreas;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();

@@ -114,15 +114,34 @@ public class ClientService {
     }
 
     public List<AvailableFarmResponse> getAvailableFarms() {
-        return getAvailableFarms(null, null, null, null);
+        return getFarmsByFilter(null, null, null, null, "ACTIVE", 0, 100);
     }
 
     public List<AvailableFarmResponse> getAvailableFarms(Double lat, Double lon, String city, String district) {
-        List<Farm> activeFarms = farmRepository.findAllByStatus(FarmStatus.ACTIVE);
+        return getFarmsByFilter(city, district, lat, lon, "ACTIVE", 0, 100);
+    }
+
+    public List<AvailableFarmResponse> getFarmsByFilter(String city, String district, Double lat, Double lon, String status, int page, int size) {
+        FarmStatus targetStatus = null;
+        if (status != null && !status.isBlank() && !status.equalsIgnoreCase("ALL")) {
+            try {
+                targetStatus = FarmStatus.valueOf(status.toUpperCase().trim());
+            } catch (Exception ignored) {
+                targetStatus = FarmStatus.ACTIVE;
+            }
+        } else if (status == null) {
+            targetStatus = FarmStatus.ACTIVE;
+        }
+
+        List<Farm> farms = (targetStatus != null) ? farmRepository.findAllByStatus(targetStatus) : farmRepository.findAll();
         List<AvailableFarmResponse> list = new ArrayList<>();
 
-        for (Farm farm : activeFarms) {
-            String fullFarmText = (farm.getName() != null ? farm.getName() : "") + " " + (farm.getAddress() != null ? farm.getAddress() : "");
+        for (Farm farm : farms) {
+            String fullFarmText = (farm.getName() != null ? farm.getName() : "") + " "
+                    + (farm.getAddress() != null ? farm.getAddress() : "") + " "
+                    + (farm.getCity() != null ? farm.getCity() : "") + " "
+                    + (farm.getDistrict() != null ? farm.getDistrict() : "") + " "
+                    + (farm.getCoverageAreas() != null ? farm.getCoverageAreas() : "");
 
             // 1. Qat'iy filtrlash: agar city berilgan bo'lsa, mos kelmasa tashlab o'tish
             if (city != null && !city.isBlank()) {
@@ -139,7 +158,7 @@ public class ClientService {
             }
 
             Double distanceKm = null;
-            Integer deliveryTimeMinutes = 35;
+            Integer deliveryTimeMinutes = 25;
 
             if (lat != null && lon != null && farm.getLatitude() != null && farm.getLongitude() != null) {
                 double distanceMeters = GeoUtils.calculateDistanceMeters(
@@ -155,27 +174,94 @@ public class ClientService {
                 rating = 4.9;
             }
 
+            String farmCity = farm.getCity();
+            if (farmCity == null || farmCity.isBlank()) {
+                farmCity = inferCityFromAddress(farm.getName() + " " + farm.getAddress());
+            }
+
+            String farmDistrict = farm.getDistrict();
+            if (farmDistrict == null || farmDistrict.isBlank()) {
+                farmDistrict = inferDistrictFromAddress(farm.getName() + " " + farm.getAddress());
+            }
+
+            List<String> coverageList = parseCoverageAreas(farm.getCoverageAreas(), farmCity, farmDistrict);
+
             list.add(AvailableFarmResponse.builder()
                     .id(farm.getId())
                     .name(farm.getName())
-                    .phone(farm.getPhone())
+                    .city(farmCity)
+                    .district(farmDistrict)
                     .address(farm.getAddress())
-                    .logoUrl(farm.getLogoUrl())
+                    .phone(farm.getPhone())
                     .rating(rating)
-                    .reviewCount(420)
-                    .distanceKm(distanceKm)
+                    .reviewCount(165)
                     .deliveryTimeMinutes(deliveryTimeMinutes)
+                    .distanceKm(distanceKm)
+                    .isOpen(farm.getStatus() == FarmStatus.ACTIVE)
+                    .status(farm.getStatus() != null ? farm.getStatus().name() : "ACTIVE")
+                    .logoUrl(farm.getLogoUrl())
                     .latitude(farm.getLatitude() != null ? farm.getLatitude().doubleValue() : null)
                     .longitude(farm.getLongitude() != null ? farm.getLongitude().doubleValue() : null)
-                    .isOpen(farm.getStatus() == FarmStatus.ACTIVE)
+                    .coverageAreas(coverageList)
                     .build());
         }
 
         if (lat != null && lon != null) {
             list.sort(Comparator.comparing(f -> f.getDistanceKm() != null ? f.getDistanceKm() : Double.MAX_VALUE));
+        } else {
+            list.sort(Comparator.comparing(AvailableFarmResponse::getRating, Comparator.nullsLast(Comparator.reverseOrder())));
+        }
+
+        // Pagination
+        if (size > 0 && page >= 0) {
+            int fromIndex = Math.min(page * size, list.size());
+            int toIndex = Math.min(fromIndex + size, list.size());
+            return new ArrayList<>(list.subList(fromIndex, toIndex));
         }
 
         return list;
+    }
+
+    private String inferCityFromAddress(String text) {
+        if (text == null) return "Toshkent";
+        String lower = text.toLowerCase();
+        if (lower.contains("samarqand")) return "Samarqand";
+        if (lower.contains("qarshi") || lower.contains("qashqadaryo")) return "Qarshi";
+        if (lower.contains("buxoro")) return "Buxoro";
+        if (lower.contains("andijon")) return "Andijon";
+        if (lower.contains("namangan")) return "Namangan";
+        if (lower.contains("farg'ona") || lower.contains("fargona")) return "Farg'ona";
+        return "Toshkent";
+    }
+
+    private String inferDistrictFromAddress(String text) {
+        if (text == null) return "Yunusobod tumani";
+        String lower = text.toLowerCase();
+        if (lower.contains("yunusobod")) return "Yunusobod tumani";
+        if (lower.contains("chilonzor")) return "Chilonzor tumani";
+        if (lower.contains("mirzo ulug'bek") || lower.contains("mirzo ulugbek")) return "Mirzo Ulug'bek tumani";
+        if (lower.contains("shayxontohur")) return "Shayxontohur tumani";
+        if (lower.contains("registon")) return "Registon";
+        if (lower.contains("bog'ishamol") || lower.contains("bogishamol")) return "Bog'ishamol tumani";
+        if (lower.contains("siyob")) return "Siyob tumani";
+        if (lower.contains("nasaf")) return "Nasaf tumani";
+        return "Markaziy tuman";
+    }
+
+    private List<String> parseCoverageAreas(String coverageStr, String city, String district) {
+        if (coverageStr != null && !coverageStr.isBlank()) {
+            return java.util.Arrays.stream(coverageStr.split("[,;\\n]"))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .toList();
+        }
+        if ("Samarqand".equalsIgnoreCase(city)) {
+            return List.of("Samarqand", "Bog'ishamol tumani", "Siyob tumani", "Temiryo'l tumani");
+        } else if ("Qarshi".equalsIgnoreCase(city)) {
+            return List.of("Qarshi", "Nasaf tumani", "Qashqadaryo");
+        } else {
+            return List.of("Toshkent", "Yunusobod tumani", "Chilonzor tumani", "Mirzo Ulug'bek tumani", "Shayxontohur tumani");
+        }
     }
 
     private boolean matchesLocation(String farmText, String searchLocation) {

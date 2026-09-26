@@ -61,16 +61,20 @@ public class ClientDtos {
     public static class AvailableFarmResponse {
         private Long id;
         private String name;
-        private String phone;
+        private String city;
+        private String district;
         private String address;
-        private String logoUrl;
+        private String phone;
         private double rating;
         private Integer reviewCount;
-        private Double distanceKm;
         private Integer deliveryTimeMinutes;
+        private Double distanceKm;
+        private Boolean isOpen;
+        private String status;
+        private String logoUrl;
         private Double latitude;
         private Double longitude;
-        private Boolean isOpen;
+        private List<String> coverageAreas;
     }
 
     @Data

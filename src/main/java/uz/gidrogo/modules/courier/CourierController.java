@@ -35,7 +35,7 @@ public class CourierController {
     @GetMapping("/profile")
     @Operation(summary = "Kuryer profili va bugungi statistikasi")
     public ResponseEntity<ApiResponse<CourierProfileResponse>> getProfile() {
-        return ResponseEntity.ok(ApiResponse.ok(courierService.getCourierProfile()));
+        return ResponseEntity.ok(ApiResponse.ok("Profil ma'lumotlari", courierService.getCourierProfile()));
     }
 
     @PutMapping("/profile")

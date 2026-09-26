@@ -29,15 +29,19 @@ public class ClientController {
     private final OrderService orderService;
     private final RatingService ratingService;
 
-    @GetMapping({"/farms/available", "/available-farms"})
-    @Operation(summary = "Ro'yxatdan o'tish yoki tanlash uchun mavjud faol suv firmalari ro'yxati (GPS va manzil filtri bilan)")
+    @GetMapping({"/farms", "/farms/available", "/available-farms"})
+    @Operation(summary = "Shahar, tuman va lokatsiya bo'yicha mavjud fermalar ro'yxatini olish (Ochiq API)")
     public ResponseEntity<ApiResponse<List<AvailableFarmResponse>>> getAvailableFarms(
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) String district,
             @RequestParam(required = false) Double lat,
             @RequestParam(required = false) Double lon,
-            @RequestParam(required = false) String city,
-            @RequestParam(required = false) String district
+            @RequestParam(defaultValue = "ACTIVE") String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
     ) {
-        return ResponseEntity.ok(ApiResponse.ok(clientService.getAvailableFarms(lat, lon, city, district)));
+        List<AvailableFarmResponse> farms = clientService.getFarmsByFilter(city, district, lat, lon, status, page, size);
+        return ResponseEntity.ok(ApiResponse.ok("Fermalar ro'yxati muvaffaqiyatli yuklandi", farms));
     }
 
     @GetMapping("/my-farm")

@@ -1,0 +1,209 @@
+================================================================================
+GIDROGO — SHAHAR VA TUMAN BO'YICHA FERMALARNI OLISH API TALABNOMASI (TECH SPEC)
+================================================================================
+Loyiha: GidroGo Mijoz Mobil Ilovasi (com.gidrogo.gidrogo_driver / Customer App)
+Backend: Spring Boot Multi-farm Marketplace API (http://169.58.215.170:8080)
+Holat: Yangi API Talabnomasi (Feature Specification)
+Sana: 2026-09-26
+Tegishli Ekranlar:
+  1. Bosh sahifa ("Yaqin Fermalar" gorizontal ro'yxati — CustomerHomePage)
+  2. Ro'yxatdan o'tish ("Ferma tanlash" bosqichi — AuthFlowPage)
+  3. Yetkazib berish manzillari sahifasi (CustomerAddressesPage)
+
+--------------------------------------------------------------------------------
+1. MUAMMO VA TALABNING MAQSADI
+--------------------------------------------------------------------------------
+Hozirgi kunda backendda 2 ta API mavjud:
+  1) GET /api/client/farms/nearby?lat=...&lon=... (Faqat GPS koordinata bo'yicha)
+  2) GET /api/client/available-farms (Barcha mavjud fermalar ro'yxati)
+
+Muammo:
+  - Mijoz telefonida GPS (geolokatsiya) yoqilmagan bo'lsa yoki u boshqa shahar
+    uchun buyurtma bermoqchi bo'lsa (masalan, Toshkentda turib Samarqanddagi
+    uyiga suv buyurtma qilsa), koordinata bo'yicha to'g'ri fermani aniqlab bo'lmaydi.
+  - Ilova barcha mavjud fermalarni birvarakayiga yuklab olib, telefonda filtr
+    qilishga majbur bo'lmoqda. Fermalar soni oshganda bu telefonni qotiradi va
+    ortiqcha internet trafigini sarflaydi.
+
+Yechim:
+  Mijoz kiritgan/tanlagan shahar (city) va ixtiyoriy tuman (district) bo'yicha
+  to'g'ridan-to'g'ri serverdan fermalar ro'yxatini qaytaruvchi API yaratish.
+
+--------------------------------------------------------------------------------
+2. ENDPOINT XUSUSIYATLARI
+--------------------------------------------------------------------------------
+HTTP Method: GET
+Endpoint URL: /api/client/farms
+Xavfsizlik (Auth): Ochiq (Public / PermitAll) — Ro'yxatdan o'tmagan yoki tizimga
+                   kirmagan yangi mijozlar ham foydalana olishi shart.
+
+--------------------------------------------------------------------------------
+3. QUERY PARAMETRLARI (REQUEST PARAMETERS)
+--------------------------------------------------------------------------------
+Quyidagi parametrlarning barchasi ixtiyoriy (optional). Agar parametrlar
+berilmasa, tizimdagi barcha faol fermalar qaytariladi.
+
+Parametr nomi   | Turi    | Majburiymi | Tavsif va Misol
+----------------|---------|------------|----------------------------------------
+city            | String  | Yo'q       | Shahar yoki viloyat nomi.
+                |         |            | Misol: city=Samarqand yoki city=Toshkent
+district        | String  | Yo'q       | Tuman nomi.
+                |         |            | Misol: district=Chilonzor
+lat             | Double  | Yo'q       | Mijoz koordinatasi (kenglik)
+                |         |            | Misol: lat=41.2856
+lon             | Double  | Yo'q       | Mijoz koordinatasi (uzunlik)
+                |         |            | Misol: lon=69.2034
+status          | String  | Yo'q       | Ferma holati. Default: ACTIVE
+page            | Integer | Yo'q       | Sahifa raqami (default: 0)
+size            | Integer | Yo'q       | Elementlar soni (default: 20)
+
+* Eslatma: Agar mijoz "city" bilan birga "lat" va "lon" yuborsa, javobda shu
+  shahardagi fermalargacha bo'lgan masofa (distanceKm) ham hisoblab berilishi
+  maqsadga muvofiq.
+
+--------------------------------------------------------------------------------
+4. RESPONSE (200 OK) JAVOB STRUKTURASI
+--------------------------------------------------------------------------------
+Status Code: 200 OK
+Content-Type: application/json
+
+{
+  "success": true,
+  "message": "Fermalar ro'yxati muvaffaqiyatli yuklandi",
+  "data": [
+    {
+      "id": 4,
+      "name": "Samarqand Zarafshon Suv Fermasi",
+      "city": "Samarqand",
+      "district": "Bog'ishamol tumani",
+      "address": "Samarqand sh., Mirzo Ulug'bek ko'chasi, 15-uy",
+      "phone": "+998662001122",
+      "rating": 4.9,
+      "reviewCount": 165,
+      "deliveryTimeMinutes": 25,
+      "distanceKm": 1.4,
+      "isOpen": true,
+      "status": "ACTIVE",
+      "logoUrl": "http://169.58.215.170:8080/files/farm_4_logo.png",
+      "latitude": 39.6542,
+      "longitude": 66.9597,
+      "coverageAreas": [
+        "Samarqand",
+        "Bog'ishamol tumani",
+        "Siyob tumani"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Registon Toza Suv",
+      "city": "Samarqand",
+      "district": "Temiryo'l tumani",
+      "address": "Samarqand sh., Beruniy ko'chasi, 8-uy",
+      "phone": "+998662334455",
+      "rating": 4.8,
+      "reviewCount": 98,
+      "deliveryTimeMinutes": 30,
+      "distanceKm": 3.1,
+      "isOpen": true,
+      "status": "ACTIVE",
+      "logoUrl": "http://169.58.215.170:8080/files/farm_7_logo.png",
+      "latitude": 39.6610,
+      "longitude": 66.9320,
+      "coverageAreas": [
+        "Samarqand",
+        "Temiryo'l tumani"
+      ]
+    }
+  ],
+  "timestamp": "2026-09-26T11:20:00Z"
+}
+
+--------------------------------------------------------------------------------
+5. BACKENDDA FILTRATSIYA MANTIG'I (BUSINESS LOGIC)
+--------------------------------------------------------------------------------
+1. Shahar bo'yicha qidiruv (Case-insensitive):
+   Mijoz "Samarqand", "samarqand", "Samarqand shahri" yoki "Samarqand viloyati"
+   deb yuborganda ham baza quyidagilar bo'yicha moslikni topishi kerak:
+   - ferma manzilidagi shahar (farms.city);
+   - yoki to'liq manzil matni (farms.address ILIKE '%samarqand%');
+   - yoki fermaga biriktirilgan xizmat ko'rsatish hududlari (coverage_areas).
+
+2. Tuman bo'yicha qidiruv:
+   Agar `district` parametri berilgan bo'lsa (masalan `district=Chilonzor`),
+   faqat o'sha tumanga xizmat qiladigan fermalar filtrlanadi.
+
+3. Masofani hisoblash (Agar lat/lon berilsa):
+   Haversine formulasi yordamida mijoz nuqtasidan ferma nuqtasigacha masofa
+   hisoblanadi va eng yaqin fermalar ro'yxatning boshiga saralanadi (ORDER BY distance ASC).
+
+--------------------------------------------------------------------------------
+6. SPRING BOOT KOD NAMUNASI (BACKEND DASTURCHILAR UCHUN)
+--------------------------------------------------------------------------------
+
+A) Controller:
+--------------------------------------------------------------------------------
+package com.gidrogo.controller;
+
+import com.gidrogo.dto.ApiResponse;
+import com.gidrogo.dto.FarmResponseDto;
+import com.gidrogo.service.FarmService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/client/farms")
+@RequiredArgsConstructor
+public class ClientFarmController {
+
+    private final FarmService farmService;
+
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<FarmResponseDto>>> getFarms(
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) String district,
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lon,
+            @RequestParam(defaultValue = "ACTIVE") String status) {
+
+        List<FarmResponseDto> farms = farmService.getFarmsByFilter(city, district, lat, lon, status);
+        return ResponseEntity.ok(ApiResponse.success("Fermalar ro'yxati muvaffaqiyatli yuklandi", farms));
+    }
+}
+
+B) Repository (SQL / JPQL Namuna):
+--------------------------------------------------------------------------------
+@Query("""
+    SELECT f FROM Farm f 
+    WHERE (:status IS NULL OR f.status = :status)
+      AND (:city IS NULL OR LOWER(f.city) LIKE LOWER(CONCAT('%', :city, '%')) OR LOWER(f.address) LIKE LOWER(CONCAT('%', :city, '%')))
+      AND (:district IS NULL OR LOWER(f.district) LIKE LOWER(CONCAT('%', :district, '%')) OR LOWER(f.address) LIKE LOWER(CONCAT('%', :district, '%')))
+    ORDER BY f.rating DESC
+""")
+List<Farm> findFarmsByArea(
+    @Param("city") String city,
+    @Param("district") String district,
+    @Param("status") String status
+);
+
+--------------------------------------------------------------------------------
+7. CURL TEST SO'ROVI MISOLI
+--------------------------------------------------------------------------------
+# Samarqand shahridagi fermalarni olish:
+curl -X GET "http://169.58.215.170:8080/api/client/farms?city=Samarqand" -H "Accept: application/json"
+
+# Toshkent shahrining Chilonzor tumanidagi fermalarni olish:
+curl -X GET "http://169.58.215.170:8080/api/client/farms?city=Toshkent&district=Chilonzor" -H "Accept: application/json"
+
+--------------------------------------------------------------------------------
+8. XULOSA
+--------------------------------------------------------------------------------
+Ushbu API tayyor bo'lishi bilan mobil ilovada:
+  1. Bosh sahifadagi "Yetkazish manzili" o'zgarganda avtomatik ravishda o'sha
+     shaharning fermalari yuklanadi.
+  2. Mijoz GPS koordinatasini berishiga ehtiyoj qolmaydi — faqat shahar nomi
+     kifoya qiladi.
+  3. Butun O'zbekiston fermalarini telefonga yuklash muammosi bartaraf etiladi.
+================================================================================
