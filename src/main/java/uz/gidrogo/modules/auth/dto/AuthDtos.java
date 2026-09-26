@@ -14,11 +14,21 @@ public class AuthDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class LoginRequest {
-        @NotBlank(message = "Login (telefon raqam yoki username) kiritilishi shart")
-        private String login;
+        private String login; // username yoki telefon raqami
+        private String phone; // to'g'ridan-to'g'ri telefon raqami (+998...)
 
         @NotBlank(message = "Parol kiritilishi shart")
         private String password;
+
+        public String getEffectiveLogin() {
+            if (phone != null && !phone.isBlank()) {
+                return phone.trim();
+            }
+            if (login != null && !login.isBlank()) {
+                return login.trim();
+            }
+            return "";
+        }
     }
 
     @Data

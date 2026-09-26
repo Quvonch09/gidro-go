@@ -68,7 +68,10 @@ public class AuthService {
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        String identifier = request.getLogin() != null ? request.getLogin().trim() : "";
+        String identifier = request.getEffectiveLogin();
+        if (identifier.isBlank()) {
+            throw new BadRequestException("Telefon raqam yoki login kiritilishi shart");
+        }
         String altPhone = identifier;
         if (!identifier.startsWith("+") && identifier.matches("\\d+")) {
             if (identifier.startsWith("998")) {
