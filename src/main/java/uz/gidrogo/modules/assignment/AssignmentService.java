@@ -36,6 +36,11 @@ public class AssignmentService {
      */
     @Transactional
     public boolean assignOrderToCourier(Order order) {
+        return assignOrderToCourier(order, null);
+    }
+
+    @Transactional
+    public boolean assignOrderToCourier(Order order, Long excludeCourierId) {
         List<OrderItem> items = orderItemRepository.findAllByOrderId(order.getId());
         if (items.isEmpty()) {
             return false;
@@ -44,10 +49,11 @@ public class AssignmentService {
         // 1. Shu fermaga tegishli, faol holatdagi barcha dastavkachilar (users)
         List<User> farmCouriers = userRepository.findAllByFarmIdAndRole(order.getFarmId(), Role.COURIER).stream()
                 .filter(u -> "ACTIVE".equalsIgnoreCase(u.getStatus()))
+                .filter(u -> excludeCourierId == null || !u.getId().equals(excludeCourierId))
                 .toList();
 
         if (farmCouriers.isEmpty()) {
-            transitionToPreparing(order, "Fermada faol dastavkachilar mavjud emas");
+            transitionToPreparing(order, "Fermada boshqa faol dastavkachilar mavjud emas");
             return false;
         }
 
@@ -141,14 +147,18 @@ public class AssignmentService {
         List<Order> timedOutOrders = orderRepository.findAllByStatusAndAssignedAtBefore(OrderStatus.ASSIGNED, cutoff);
 
         for (Order order : timedOutOrders) {
+            Long prevCourierId = order.getCourierId();
             log.warn("Order {} 30s timeout bo'ldi (Courier {} qabul qilmadi). Qayta taqsimlanmoqda...",
-                    order.getOrderNumber(), order.getCourierId());
+                    order.getOrderNumber(), prevCourierId);
 
             order.setCourierId(null);
             order.setStatus(OrderStatus.SEARCHING);
             orderRepository.save(order);
 
-            assignOrderToCourier(order);
+            boolean assigned = assignOrderToCourier(order, prevCourierId);
+            if (!assigned) {
+                transitionToPreparing(order, "Kuryer qabul qilmadi va boshqa bo'sh kuryer topilmadi");
+            }
         }
     }
 }
