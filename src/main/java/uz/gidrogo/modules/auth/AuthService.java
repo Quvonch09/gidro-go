@@ -68,7 +68,12 @@ public class AuthService {
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        String identifier = request.getEffectiveLogin();
+        String identifier = "";
+        if (request.getPhone() != null && !request.getPhone().isBlank()) {
+            identifier = request.getPhone().trim();
+        } else if (request.getLogin() != null && !request.getLogin().isBlank()) {
+            identifier = request.getLogin().trim();
+        }
         if (identifier.isBlank()) {
             throw new BadRequestException("Telefon raqam yoki login kiritilishi shart");
         }

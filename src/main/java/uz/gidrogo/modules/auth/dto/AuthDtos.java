@@ -19,16 +19,6 @@ public class AuthDtos {
 
         @NotBlank(message = "Parol kiritilishi shart")
         private String password;
-
-        public String getEffectiveLogin() {
-            if (phone != null && !phone.isBlank()) {
-                return phone.trim();
-            }
-            if (login != null && !login.isBlank()) {
-                return login.trim();
-            }
-            return "";
-        }
     }
 
     @Data
