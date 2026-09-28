@@ -52,13 +52,13 @@ public class OtpService {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Iltimos, qayta yuborish uchun 60 soniya kuting");
         }
 
-        // 2. Rate Limiting: Max 5 requests per day
+        // 2. Rate Limiting: Max 5 requests per day (Vaqtinchalik o'chirildi)
         String dailyKey = "otp:daily:" + phone;
         String dailyCountStr = getValue(dailyKey);
         int dailyCount = dailyCountStr != null ? Integer.parseInt(dailyCountStr) : 0;
-        if (dailyCount >= 5) {
-            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Bir kunda ko'pi bilan 5 marta tasdiqlash kodi so'rash mumkin");
-        }
+        // if (dailyCount >= 5) {
+        //     throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Bir kunda ko'pi bilan 5 marta tasdiqlash kodi so'rash mumkin");
+        // }
 
         // 3. Generate 6-digit random code
         String code = String.format("%06d", 100000 + random.nextInt(900000));
