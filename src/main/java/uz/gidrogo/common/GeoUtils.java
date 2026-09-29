@@ -56,4 +56,34 @@ public final class GeoUtils {
 
         return inside;
     }
+
+    /**
+     * Google Encoded Polyline Algorithm Format
+     */
+    public static String encodePolyline(List<uz.gidrogo.modules.order.dto.OrderTrackingDtos.RoutePointDto> points) {
+        if (points == null || points.isEmpty()) {
+            return "";
+        }
+        StringBuilder encoded = new StringBuilder();
+        long lastLat = 0;
+        long lastLng = 0;
+        for (uz.gidrogo.modules.order.dto.OrderTrackingDtos.RoutePointDto point : points) {
+            long lat = Math.round(point.getLatitude() * 1e5);
+            long lng = Math.round(point.getLongitude() * 1e5);
+            encodeValue(lat - lastLat, encoded);
+            encodeValue(lng - lastLng, encoded);
+            lastLat = lat;
+            lastLng = lng;
+        }
+        return encoded.toString();
+    }
+
+    private static void encodeValue(long v, StringBuilder sb) {
+        v = v < 0 ? ~(v << 1) : v << 1;
+        while (v >= 0x20) {
+            sb.append((char) ((0x20 | (v & 0x1f)) + 63));
+            v >>= 5;
+        }
+        sb.append((char) (v + 63));
+    }
 }

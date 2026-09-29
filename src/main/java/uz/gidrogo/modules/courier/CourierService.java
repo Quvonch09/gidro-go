@@ -18,6 +18,7 @@ import uz.gidrogo.modules.farm.FarmRepository;
 import uz.gidrogo.modules.finance.FinanceService;
 import uz.gidrogo.modules.order.*;
 import uz.gidrogo.modules.order.dto.OrderDtos.*;
+import uz.gidrogo.modules.order.dto.OrderTrackingDtos.OrderLiveTrackingWsMessage;
 import uz.gidrogo.modules.product.Product;
 import uz.gidrogo.modules.product.ProductRepository;
 import uz.gidrogo.modules.stock.RestockLogRepository;
@@ -249,7 +250,9 @@ public class CourierService {
         if (courierId == null) {
             throw new BadRequestException("Kuryer aniqlanmadi");
         }
-        String locStr = request.getLatitude() + "," + request.getLongitude() + "," + System.currentTimeMillis();
+        float bearing = request.getBearing() != null ? request.getBearing() : 0.0f;
+        float speedKmh = request.getSpeed() != null ? request.getSpeed() * 3.6f : 30.0f;
+        String locStr = request.getLatitude() + "," + request.getLongitude() + "," + bearing + "," + speedKmh + "," + System.currentTimeMillis();
         try {
             redisTemplate.opsForValue().set("courier:loc:" + courierId, locStr);
         } catch (Exception e) {
@@ -318,6 +321,39 @@ public class CourierService {
             } catch (Exception e) {
                 log.debug("WebSocket live location broadcast xatolik: {}", e.getMessage());
             }
+        }
+
+        // Mijoz uchun jonli kuzatuv xabari (/topic/orders/{orderId}/tracking)
+        try {
+            List<Order> activeOrders = orderRepository.findAllByCourierIdAndStatusIn(
+                    courierId, List.of(OrderStatus.ASSIGNED, OrderStatus.ON_THE_WAY, OrderStatus.NEARBY));
+            for (Order o : activeOrders) {
+                if (o.getLatitude() != null && o.getLongitude() != null) {
+                    double distMeters = GeoUtils.calculateDistanceMeters(
+                            request.getLatitude(), request.getLongitude(),
+                            o.getLatitude().doubleValue(), o.getLongitude().doubleValue()
+                    );
+                    int eta = (int) Math.max(1, Math.round(((distMeters / 1000.0) / Math.max(speedKmh, 20.0f)) * 60.0));
+                    boolean isNearby = distMeters <= 500.0 || o.getStatus() == OrderStatus.NEARBY;
+
+                    OrderLiveTrackingWsMessage msg = OrderLiveTrackingWsMessage.builder()
+                            .orderId(o.getId())
+                            .status(o.getStatus().name())
+                            .courierLatitude(request.getLatitude())
+                            .courierLongitude(request.getLongitude())
+                            .bearing(bearing)
+                            .speedKmh(speedKmh)
+                            .distanceMeters(Math.round(distMeters * 10.0) / 10.0)
+                            .etaMinutes(eta)
+                            .isNearby(isNearby)
+                            .timestamp(Instant.now())
+                            .build();
+
+                    eventPublisher.publishClientOrderLiveTracking(o.getId(), msg);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Mijoz WebSocket tracking broadcast xatolik: {}", e.getMessage());
         }
 
         return LocationUpdateResponse.builder()

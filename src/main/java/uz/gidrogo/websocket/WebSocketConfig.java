@@ -46,11 +46,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         // 1. Native WebSocket endpoint (Flutter, React, Postman, wscat uchun)
-        registry.addEndpoint("/ws")
+        registry.addEndpoint("/ws", "/ws/client")
                 .setAllowedOriginPatterns("*");
 
         // 2. SockJS fallback bilan brauzerlar uchun endpoint
-        registry.addEndpoint("/ws")
+        registry.addEndpoint("/ws", "/ws/client")
                 .setAllowedOriginPatterns("*")
                 .withSockJS();
     }

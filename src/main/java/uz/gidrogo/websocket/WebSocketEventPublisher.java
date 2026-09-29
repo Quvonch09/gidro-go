@@ -221,6 +221,15 @@ public class WebSocketEventPublisher {
         }
     }
 
+    /**
+     * Mijoz xaritasiga kuryerning jonli koordinatalari va ETA masofasini yuborish (/topic/orders/{orderId}/tracking)
+     */
+    public void publishClientOrderLiveTracking(Long orderId, uz.gidrogo.modules.order.dto.OrderTrackingDtos.OrderLiveTrackingWsMessage message) {
+        if (orderId == null || message == null) return;
+        String topic = "/topic/orders/" + orderId + "/tracking";
+        send(topic, message);
+    }
+
     private void send(String destination, Object payload) {
         try {
             messagingTemplate.convertAndSend(destination, payload);

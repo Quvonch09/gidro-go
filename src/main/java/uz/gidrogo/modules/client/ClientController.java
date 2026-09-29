@@ -7,10 +7,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import uz.gidrogo.common.ApiResponse;
+import uz.gidrogo.common.SecurityUtils;
 import uz.gidrogo.modules.client.ClientDtos.*;
 import uz.gidrogo.modules.farm.dto.FarmDtos.FarmResponse;
 import uz.gidrogo.modules.order.OrderService;
 import uz.gidrogo.modules.order.dto.OrderDtos.*;
+import uz.gidrogo.modules.order.dto.OrderTrackingDtos.ClientOrderTrackingResponse;
+import uz.gidrogo.modules.order.dto.OrderTrackingDtos.OrderRouteResponse;
 import uz.gidrogo.modules.product.ProductService;
 import uz.gidrogo.modules.product.dto.ProductDtos.ProductResponse;
 import uz.gidrogo.modules.rating.RatingService;
@@ -28,6 +31,7 @@ public class ClientController {
     private final ProductService productService;
     private final OrderService orderService;
     private final RatingService ratingService;
+    private final ClientOrderTrackingService clientOrderTrackingService;
 
     @GetMapping({"/farms", "/farms/available", "/available-farms"})
     @Operation(summary = "Shahar, tuman va lokatsiya bo'yicha mavjud fermalar ro'yxatini olish (Ochiq API)")
@@ -92,6 +96,22 @@ public class ClientController {
     public ResponseEntity<ApiResponse<OrderResponse>> getOrder(@PathVariable Long id) {
         OrderResponse order = orderService.getOrderById(id);
         return ResponseEntity.ok(ApiResponse.ok(order));
+    }
+
+    @GetMapping("/orders/{id}/tracking")
+    @Operation(summary = "Kuryerning jonli GPS lokatsiyasi va masofasi (Live Tracking)")
+    public ResponseEntity<ApiResponse<ClientOrderTrackingResponse>> getOrderTracking(@PathVariable Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        ClientOrderTrackingResponse tracking = clientOrderTrackingService.getTracking(id, userId);
+        return ResponseEntity.ok(ApiResponse.ok("Kuryer kuzatuv ma'lumotlari", tracking));
+    }
+
+    @GetMapping("/orders/{id}/route")
+    @Operation(summary = "Kuryerdan mijoz manziliga qadar yo'l marshruti (Street Polyline Waypoints)")
+    public ResponseEntity<ApiResponse<OrderRouteResponse>> getOrderRoute(@PathVariable Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        OrderRouteResponse route = clientOrderTrackingService.getRoute(id, userId);
+        return ResponseEntity.ok(ApiResponse.ok("Marshrut koordinatalari", route));
     }
 
     @PostMapping("/orders/{id}/cancel")
