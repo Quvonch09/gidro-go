@@ -79,7 +79,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/boss/**").hasRole("BOSS")
                         .requestMatchers("/api/manager/**").hasAnyRole("MANAGER", "BOSS")
                         .requestMatchers("/api/courier/**").hasRole("COURIER")
-                        .requestMatchers("/api/client/**").hasRole("CLIENT")
+                        .requestMatchers("/api/client/**").hasAnyRole("CLIENT", "SUPER_ADMIN")
                         .requestMatchers("/api/files/**").authenticated()
 
                         .anyRequest().authenticated()
