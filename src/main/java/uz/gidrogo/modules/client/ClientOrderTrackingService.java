@@ -304,13 +304,9 @@ public class ClientOrderTrackingService {
         } catch (Exception ignored) {}
 
         if (currentLat == null || currentLon == null) {
-            if (farm != null && farm.getLatitude() != null && farm.getLongitude() != null) {
-                currentLat = farm.getLatitude().doubleValue();
-                currentLon = farm.getLongitude().doubleValue();
-            } else if (order.getLatitude() != null && order.getLongitude() != null) {
-                currentLat = order.getLatitude().doubleValue();
-                currentLon = order.getLongitude().doubleValue();
-            }
+            // Section 6.8: GPS hali yo'q bo'lsa null qaytishi shart (0.0 yoki ferma koordinatasi emas)
+            currentLat = null;
+            currentLon = null;
             if (lastUpdated == null) {
                 lastUpdated = Instant.now();
             }

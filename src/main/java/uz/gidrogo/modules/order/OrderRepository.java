@@ -61,4 +61,10 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
     Instant findLastOrderDateByClientAndFarm(@Param("clientId") Long clientId, @Param("farmId") Long farmId);
 
     List<Order> findAllByClientIdAndFarmIdOrderByCreatedAtDesc(Long clientId, Long farmId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = "UPDATE orders SET courier_id = :courierId, status = 'ASSIGNED', assigned_at = :now " +
+                   "WHERE id = :orderId AND (courier_id IS NULL OR courier_id = :courierId) " +
+                   "AND status IN ('NEW', 'SEARCHING', 'ASSIGNED')", nativeQuery = true)
+    int atomicAssignCourier(@Param("orderId") Long orderId, @Param("courierId") Long courierId, @Param("now") Instant now);
 }

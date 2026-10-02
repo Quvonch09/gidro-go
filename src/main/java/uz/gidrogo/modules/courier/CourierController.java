@@ -27,6 +27,8 @@ import java.util.Map;
 public class CourierController {
 
     private final CourierService courierService;
+    private final CourierDispatchService courierDispatchService;
+    private final uz.gidrogo.modules.client.ClientOrderTrackingService clientOrderTrackingService;
     private final StockService stockService;
     private final NotificationService notificationService;
 
@@ -80,6 +82,16 @@ public class CourierController {
         return ResponseEntity.ok(ApiResponse.ok(courierService.getCourierOrdersPaged(status, startDate, endDate, page, size)));
     }
 
+    @GetMapping("/orders/offers")
+    @Operation(summary = "Kuryerga hozir taklif qilinayotgan faol buyurtmalar ro'yxati (PENDING, TTL bilan)")
+    public ResponseEntity<ApiResponse<List<CourierOfferDtos.CourierOfferResponse>>> getOffers(
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lon) {
+        Long courierId = SecurityUtils.getCurrentUserId();
+        List<CourierOfferDtos.CourierOfferResponse> offers = courierDispatchService.getOffersForCourier(courierId, lat, lon);
+        return ResponseEntity.ok(ApiResponse.ok("Faol takliflar", offers));
+    }
+
     @GetMapping("/orders/active")
     @Operation(summary = "Kuryerning ayni paytdagi faol buyurtmalari (ASSIGNED, ON_THE_WAY, NEARBY)")
     public ResponseEntity<ApiResponse<List<OrderResponse>>> getActiveOrders() {
@@ -92,18 +104,28 @@ public class CourierController {
         return ResponseEntity.ok(ApiResponse.ok(courierService.getOrderDetail(id)));
     }
 
+    @GetMapping("/orders/{id}/route")
+    @Operation(summary = "Kuryer navigatsiyasi uchun marshrut (ko'cha bo'ylab OSRM polyline)")
+    public ResponseEntity<ApiResponse<uz.gidrogo.modules.order.dto.OrderTrackingDtos.OrderRouteResponse>> getCourierOrderRoute(@PathVariable Long id) {
+        Long courierId = SecurityUtils.getCurrentUserId();
+        uz.gidrogo.modules.order.dto.OrderTrackingDtos.OrderRouteResponse route = clientOrderTrackingService.getRoute(id, courierId);
+        return ResponseEntity.ok(ApiResponse.ok("Marshrut koordinatalari", route));
+    }
+
     @PostMapping("/orders/{id}/accept")
-    @Operation(summary = "Buyurtma taklifini qabul qilish (30 soniya ichida)")
+    @Operation(summary = "Buyurtma taklifini qabul qilish (409 atomic race guard bilan)")
     public ResponseEntity<ApiResponse<OrderResponse>> acceptOrder(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok("Buyurtma qabul qilindi", courierService.acceptOrder(id)));
+        Long courierId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.ok("Buyurtma qabul qilindi", courierDispatchService.acceptOffer(id, courierId)));
     }
 
     @PostMapping("/orders/{id}/reject")
-    @Operation(summary = "Buyurtma taklifini rad etish (buyurtma qayta navbatga qaytadi)")
+    @Operation(summary = "Buyurtma taklifini rad etish (buyurtma qayta navbatdagi keyingi kuryerga o'tadi)")
     public ResponseEntity<ApiResponse<OrderResponse>> rejectOrder(
             @PathVariable Long id,
             @Valid @RequestBody RejectOrderRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok("Buyurtma rad etildi", courierService.rejectOrder(id, request)));
+        Long courierId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.ok("Buyurtma rad etildi", courierDispatchService.rejectOffer(id, courierId, request.getReason())));
     }
 
     @PostMapping("/orders/{id}/start")
