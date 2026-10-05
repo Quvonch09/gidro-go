@@ -8,6 +8,8 @@ server:
 spring:
   application:
     name: gidrogo-backend
+  main:
+    allow-circular-references: true
   threads:
     virtual:
       enabled: true

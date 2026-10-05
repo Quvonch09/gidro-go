@@ -38,10 +38,14 @@ public class CourierDispatchService {
     private final FarmRepository farmRepository;
     private final OrderStatusHistoryRepository statusHistoryRepository;
     private final OrderProblemLogRepository problemLogRepository;
-    private final OrderService orderService;
+    private final org.springframework.context.ApplicationContext applicationContext;
     private final CourierWebSocketHandler courierWebSocketHandler;
     private final WebSocketEventPublisher eventPublisher;
     private final StringRedisTemplate redisTemplate;
+
+    private OrderService getOrderService() {
+        return applicationContext.getBean(OrderService.class);
+    }
 
     /**
      * Kuryer uchun faol takliflar ro'yxati (2.1 GET /api/courier/orders/offers)
@@ -201,7 +205,7 @@ public class CourierDispatchService {
 
         log.info("Kuryer {} buyurtmani {} atomik qabul qildi", courierId, orderId);
 
-        OrderResponse resp = orderService.mapToResponse(updatedOrder, true);
+        OrderResponse resp = getOrderService().mapToResponse(updatedOrder, true);
         eventPublisher.publishOrderStatusChanged(updatedOrder.getFarmId(), courierId, updatedOrder.getClientId(), resp);
         return resp;
     }
@@ -249,7 +253,7 @@ public class CourierDispatchService {
         // Keyingi nomzod kuryerga taklif yaratish
         dispatchOrderToNextCandidate(order);
 
-        OrderResponse resp = orderService.mapToResponse(order, true);
+        OrderResponse resp = getOrderService().mapToResponse(order, true);
         eventPublisher.publishOrderStatusChanged(order.getFarmId(), courierId, order.getClientId(), resp);
         return resp;
     }
@@ -362,7 +366,7 @@ public class CourierDispatchService {
             courierWebSocketHandler.sendToCourier(bestCandidate.getId(), newOfferEvent);
 
             // STOMP ga ham dublyaj
-            eventPublisher.publishOrderAssigned(order.getFarmId(), bestCandidate.getId(), orderService.mapToResponse(order, false));
+            eventPublisher.publishOrderAssigned(order.getFarmId(), bestCandidate.getId(), getOrderService().mapToResponse(order, false));
         } else {
             log.info("Buyurtma {} uchun bo'sh kuryer topilmadi, status SEARCHING da qoladi (Manager navbati)", order.getId());
         }

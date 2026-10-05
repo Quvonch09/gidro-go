@@ -113,14 +113,27 @@ public class CourierController {
     }
 
     @PostMapping("/orders/{id}/accept")
-    @Operation(summary = "Buyurtma taklifini qabul qilish (409 atomic race guard bilan)")
+    @Operation(summary = "Buyurtma taklifini qabul qilish (409 atomic race guard bilan)",
+            description = "Kuryer taklif qilingan buyurtmani qabul qiladi. PostgreSQL darajasidagi atomik race guard orqali bir vaqtda bir nechta kuryer qabul qilishga uringanda aynan bittasiga 200 beriladi, qolganlariga 409 qaytariladi.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Buyurtma muvaffaqiyatli qabul qilindi (OrderResponse, status ASSIGNED)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Buyurtma allaqachon boshqa kuryer tomonidan qabul qilingan (Conflict)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "Taklif muddati tugagan (Offer Expired)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Kuryer offline yoki buyurtma unga taklif qilinmagan"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Buyurtma topilmadi")
+    })
     public ResponseEntity<ApiResponse<OrderResponse>> acceptOrder(@PathVariable Long id) {
         Long courierId = SecurityUtils.getCurrentUserId();
         return ResponseEntity.ok(ApiResponse.ok("Buyurtma qabul qilindi", courierDispatchService.acceptOffer(id, courierId)));
     }
 
     @PostMapping("/orders/{id}/reject")
-    @Operation(summary = "Buyurtma taklifini rad etish (buyurtma qayta navbatdagi keyingi kuryerga o'tadi)")
+    @Operation(summary = "Buyurtma taklifini rad etish (buyurtma qayta navbatdagi keyingi kuryerga o'tadi)",
+            description = "Kuryer taklif qilingan buyurtmani rad etadi. Taklif REJECTED ga o'tadi va tizim buyurtmani avtomatik navbatdagi eng yaqin nomzod kuryerga taklif qiladi.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Taklif rad etildi va navbatdagi nomzodga yo'naltirildi"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Buyurtma topilmadi")
+    })
     public ResponseEntity<ApiResponse<OrderResponse>> rejectOrder(
             @PathVariable Long id,
             @Valid @RequestBody RejectOrderRequest request) {
