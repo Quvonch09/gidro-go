@@ -20,6 +20,8 @@ public interface CourierOfferRepository extends JpaRepository<CourierOffer, Long
 
     Optional<CourierOffer> findFirstByOrderIdAndStatus(Long orderId, String status);
 
+    List<CourierOffer> findAllByOrderId(Long orderId);
+
     List<CourierOffer> findAllByOrderIdAndStatus(Long orderId, String status);
 
     List<CourierOffer> findAllByExpiresAtBeforeAndStatus(Instant now, String status);

@@ -32,7 +32,6 @@ import java.util.List;
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final JwtTokenProvider jwtTokenProvider;
-    private final CourierHandshakeInterceptor courierHandshakeInterceptor;
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
@@ -46,21 +45,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // 1. Native WebSocket endpoint (Flutter, React, Postman, wscat, websocat uchun)
-        registry.addEndpoint("/ws", "/ws/client")
-                .setAllowedOriginPatterns("*");
-
-        registry.addEndpoint("/ws/courier")
-                .addInterceptors(courierHandshakeInterceptor)
+        // 1. Native WebSocket endpoint for STOMP clients
+        registry.addEndpoint("/ws/client")
                 .setAllowedOriginPatterns("*");
 
         // 2. SockJS fallback bilan brauzerlar uchun endpoint
-        registry.addEndpoint("/ws", "/ws/client")
-                .setAllowedOriginPatterns("*")
-                .withSockJS();
-
-        registry.addEndpoint("/ws/courier")
-                .addInterceptors(courierHandshakeInterceptor)
+        registry.addEndpoint("/ws/client")
                 .setAllowedOriginPatterns("*")
                 .withSockJS();
     }

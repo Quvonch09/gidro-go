@@ -19,6 +19,7 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
     List<Order> findAllByClientIdOrderByCreatedAtDesc(Long clientId);
     List<Order> findAllByCourierIdOrderByCreatedAtDesc(Long courierId);
     List<Order> findAllByCourierIdAndStatusIn(Long courierId, List<OrderStatus> statuses);
+    List<Order> findAllByStatus(OrderStatus status);
     List<Order> findAllByFarmIdOrderByCreatedAtDesc(Long farmId);
     List<Order> findAllByFarmIdAndStatus(Long farmId, OrderStatus status);
     List<Order> findAllByFarmIdAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(Long farmId, Instant since);
@@ -62,9 +63,12 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
 
     List<Order> findAllByClientIdAndFarmIdOrderByCreatedAtDesc(Long clientId, Long farmId);
 
+    List<Order> findAllByCreatedAtBetweenOrderByCreatedAtAsc(Instant start, Instant end);
+    List<Order> findAllByFarmIdAndCreatedAtBetweenOrderByCreatedAtAsc(Long farmId, Instant start, Instant end);
+
     @org.springframework.data.jpa.repository.Modifying
     @Query(value = "UPDATE orders SET courier_id = :courierId, status = 'ASSIGNED', assigned_at = :now " +
-                   "WHERE id = :orderId AND (courier_id IS NULL OR courier_id = :courierId) " +
-                   "AND status IN ('NEW', 'SEARCHING', 'ASSIGNED')", nativeQuery = true)
+                   "WHERE id = :orderId AND courier_id IS NULL " +
+                   "AND status IN ('NEW', 'SEARCHING')", nativeQuery = true)
     int atomicAssignCourier(@Param("orderId") Long orderId, @Param("courierId") Long courierId, @Param("now") Instant now);
 }

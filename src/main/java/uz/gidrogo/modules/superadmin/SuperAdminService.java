@@ -364,4 +364,241 @@ public class SuperAdminService {
     public List<SuperAdminAuditLog> getAuditLogs() {
         return auditLogRepository.findAllByOrderByCreatedAtDesc();
     }
+
+    // ==========================================
+    // 3. SOZLAMALAR VA PROFIL (SETTINGS & PROFILE)
+    // ==========================================
+    public SuperAdminProfileResponse getSuperAdminProfile() {
+        User user = getCurrentSuperAdminUser();
+        return mapToProfileResponse(user);
+    }
+
+    @Transactional
+    public SuperAdminProfileResponse updateSuperAdminProfile(SuperAdminProfileUpdateRequest request) {
+        User user = getCurrentSuperAdminUser();
+
+        if (request.getFirstName() != null || request.getLastName() != null) {
+            String first = request.getFirstName() != null ? request.getFirstName().trim() : "";
+            String last = request.getLastName() != null ? request.getLastName().trim() : "";
+            String full = (first + " " + last).trim();
+            if (!full.isEmpty()) {
+                user.setFullName(full);
+            }
+        } else if (request.getFullName() != null && !request.getFullName().isBlank()) {
+            user.setFullName(request.getFullName().trim());
+        }
+
+        if (request.getPhone() != null && !request.getPhone().isBlank()) {
+            user.setPhone(request.getPhone().trim());
+        }
+        if (request.getEmail() != null && !request.getEmail().isBlank()) {
+            user.setEmail(request.getEmail().trim());
+        }
+        if (request.getAvatarUrl() != null && !request.getAvatarUrl().isBlank()) {
+            user.setAvatarUrl(request.getAvatarUrl().trim());
+        }
+
+        user = userRepository.save(user);
+
+        // Audit log
+        try {
+            auditLogRepository.save(SuperAdminAuditLog.builder()
+                    .actorId(user.getId())
+                    .action("PROFILE_UPDATE")
+                    .metadata("SuperAdmin profil ma'lumotlari yangilandi: " + user.getFullName())
+                    .createdAt(Instant.now())
+                    .build());
+        } catch (Exception ignored) {}
+
+        return mapToProfileResponse(user);
+    }
+
+    @Transactional
+    public void changePassword(ChangePasswordRequest request) {
+        User user = getCurrentSuperAdminUser();
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            throw new BadRequestException("Joriy parol noto'g'ri kiritildi");
+        }
+
+        if (request.getNewPassword() == null || request.getNewPassword().length() < 8) {
+            throw new BadRequestException("Yangi parol kamida 8 ta belgidan iborat bo'lishi kerak");
+        }
+
+        if (request.getConfirmPassword() != null && !request.getConfirmPassword().isBlank()
+                && !request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new BadRequestException("Yangi parol va uni tasdiqlash mos kelmadi");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        try {
+            auditLogRepository.save(SuperAdminAuditLog.builder()
+                    .actorId(user.getId())
+                    .action("PASSWORD_CHANGE")
+                    .metadata("SuperAdmin hisob paroli muvaffaqiyatli yangilandi")
+                    .createdAt(Instant.now())
+                    .build());
+        } catch (Exception ignored) {}
+    }
+
+    private User getCurrentSuperAdminUser() {
+        Long currentUserId = uz.gidrogo.common.SecurityUtils.getCurrentUserId();
+        if (currentUserId != null) {
+            return userRepository.findById(currentUserId)
+                    .orElseGet(() -> userRepository.findAll().stream()
+                            .filter(u -> u.getRole() == Role.SUPER_ADMIN)
+                            .findFirst()
+                            .orElseThrow(() -> new ResourceNotFoundException("SuperAdmin foydalanuvchisi topilmadi")));
+        }
+        return userRepository.findAll().stream()
+                .filter(u -> u.getRole() == Role.SUPER_ADMIN)
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("SuperAdmin foydalanuvchisi topilmadi"));
+    }
+
+    private SuperAdminProfileResponse mapToProfileResponse(User user) {
+        String fullName = user.getFullName() != null ? user.getFullName() : "Super Admin";
+        String firstName = fullName;
+        String lastName = "";
+        int spaceIdx = fullName.indexOf(' ');
+        if (spaceIdx > 0) {
+            firstName = fullName.substring(0, spaceIdx);
+            lastName = fullName.substring(spaceIdx + 1);
+        }
+
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy").withZone(ZoneId.of("Asia/Tashkent"));
+        String formattedCreated = user.getCreatedAt() != null ? dateFormatter.format(user.getCreatedAt()) : "01.10.2026";
+
+        String avatar = user.getAvatarUrl();
+        if (avatar == null || avatar.isBlank()) {
+            avatar = "https://ui-avatars.com/api/?name=" + firstName + "+" + (lastName.isEmpty() ? "Admin" : lastName) + "&background=2563EB&color=fff&rounded=true";
+        }
+
+        return SuperAdminProfileResponse.builder()
+                .id(user.getId())
+                .firstName(firstName)
+                .lastName(lastName)
+                .fullName(fullName)
+                .phone(user.getPhone() != null ? user.getPhone() : "")
+                .email(user.getEmail() != null ? user.getEmail() : "")
+                .role(user.getRole() != null ? user.getRole().name() : "SUPER_ADMIN")
+                .roleTitle("Bosh Platforma Administratori")
+                .avatarUrl(avatar)
+                .createdAt(user.getCreatedAt())
+                .formattedCreatedAt(formattedCreated)
+                .build();
+    }
+
+    // ==========================================
+    // 4. KUNMA-KUN DINAMIKA (DAILY DYNAMICS)
+    // ==========================================
+    public DailyDynamicsResponse getDailyDynamics(Integer days, java.time.LocalDate startDate, java.time.LocalDate endDate, Long farmId) {
+        ZoneId zone = ZoneId.of("Asia/Tashkent");
+
+        java.time.LocalDate end = endDate != null ? endDate : java.time.LocalDate.now(zone);
+        int dayCount = (days != null && days > 0) ? days : 7;
+        java.time.LocalDate start = startDate != null ? startDate : end.minusDays(dayCount - 1);
+
+        if (start.isAfter(end)) {
+            java.time.LocalDate temp = start;
+            start = end;
+            end = temp;
+        }
+
+        Instant startInstant = start.atStartOfDay(zone).toInstant();
+        Instant endInstant = end.plusDays(1).atStartOfDay(zone).toInstant();
+
+        List<uz.gidrogo.modules.order.Order> orders;
+        if (farmId != null) {
+            orders = orderRepository.findAllByFarmIdAndCreatedAtBetweenOrderByCreatedAtAsc(farmId, startInstant, endInstant);
+        } else {
+            orders = orderRepository.findAllByCreatedAtBetweenOrderByCreatedAtAsc(startInstant, endInstant);
+        }
+
+        // Kunlar bo'yicha guruhlash
+        java.util.Map<java.time.LocalDate, List<uz.gidrogo.modules.order.Order>> ordersByDate = new java.util.HashMap<>();
+        for (uz.gidrogo.modules.order.Order o : orders) {
+            if (o.getCreatedAt() != null) {
+                java.time.LocalDate orderDate = o.getCreatedAt().atZone(zone).toLocalDate();
+                ordersByDate.computeIfAbsent(orderDate, k -> new ArrayList<>()).add(o);
+            }
+        }
+
+        List<DailyDynamicsItem> items = new ArrayList<>();
+        long grandTotalOrders = 0;
+        double grandTotalRevenue = 0.0;
+
+        java.time.LocalDate cur = start;
+        while (!cur.isAfter(end)) {
+            List<uz.gidrogo.modules.order.Order> dayOrders = ordersByDate.getOrDefault(cur, List.of());
+
+            long totalOrders = dayOrders.size();
+            long completedOrders = dayOrders.stream().filter(o -> o.getStatus() == uz.gidrogo.modules.order.OrderStatus.COMPLETED).count();
+            long cancelledOrders = dayOrders.stream().filter(o -> o.getStatus() == uz.gidrogo.modules.order.OrderStatus.CANCELLED).count();
+            double totalAmount = dayOrders.stream()
+                    .filter(o -> o.getTotalSum() != null && o.getStatus() != uz.gidrogo.modules.order.OrderStatus.CANCELLED)
+                    .mapToDouble(o -> o.getTotalSum().doubleValue())
+                    .sum();
+
+            grandTotalOrders += totalOrders;
+            grandTotalRevenue += totalAmount;
+
+            String formattedDate = cur.getDayOfMonth() + "-" + getUzbekMonthName(cur.getMonthValue());
+            String dayOfWeek = getUzbekDayOfWeek(cur.getDayOfWeek());
+
+            items.add(DailyDynamicsItem.builder()
+                    .date(cur.toString())
+                    .formattedDate(formattedDate)
+                    .dayOfWeek(dayOfWeek)
+                    .totalOrders(totalOrders)
+                    .completedOrders(completedOrders)
+                    .cancelledOrders(cancelledOrders)
+                    .totalAmount(totalAmount)
+                    .revenue(totalAmount)
+                    .build());
+
+            cur = cur.plusDays(1);
+        }
+
+        return DailyDynamicsResponse.builder()
+                .totalOrders(grandTotalOrders)
+                .totalRevenue(grandTotalRevenue)
+                .startDate(start.toString())
+                .endDate(end.toString())
+                .days(items)
+                .dynamics(items)
+                .build();
+    }
+
+    private String getUzbekMonthName(int month) {
+        return switch (month) {
+            case 1 -> "yanvar";
+            case 2 -> "fevral";
+            case 3 -> "mart";
+            case 4 -> "aprel";
+            case 5 -> "may";
+            case 6 -> "iyun";
+            case 7 -> "iyul";
+            case 8 -> "avgust";
+            case 9 -> "sentabr";
+            case 10 -> "oktabr";
+            case 11 -> "noyabr";
+            case 12 -> "dekabr";
+            default -> "";
+        };
+    }
+
+    private String getUzbekDayOfWeek(java.time.DayOfWeek dayOfWeek) {
+        return switch (dayOfWeek) {
+            case MONDAY -> "Dushanba";
+            case TUESDAY -> "Seshanba";
+            case WEDNESDAY -> "Chorshanba";
+            case THURSDAY -> "Payshanba";
+            case FRIDAY -> "Juma";
+            case SATURDAY -> "Shanba";
+            case SUNDAY -> "Yakshanba";
+        };
+    }
 }

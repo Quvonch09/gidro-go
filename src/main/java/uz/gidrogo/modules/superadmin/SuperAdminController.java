@@ -14,8 +14,10 @@ import uz.gidrogo.modules.finance.dto.FinanceDtos.FinanceSummaryResponse;
 import uz.gidrogo.modules.superadmin.SuperAdminService.GlobalOperationsDashboard;
 import uz.gidrogo.modules.superadmin.dto.SuperAdminDtos.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import org.springframework.format.annotation.DateTimeFormat;
 
 @RestController
 @RequestMapping("/api/superadmin")
@@ -130,5 +132,42 @@ public class SuperAdminController {
     @Operation(summary = "SuperAdmin harakatlari auditi (Faqat SuperAdmin harakatlari saqlanadi)")
     public ResponseEntity<ApiResponse<List<SuperAdminAuditLog>>> getAuditLog() {
         return ResponseEntity.ok(ApiResponse.ok(superAdminService.getAuditLogs()));
+    }
+
+    // ==========================================
+    // 3. SOZLAMALAR VA PROFIL (SETTINGS & PROFILE)
+    // ==========================================
+    @GetMapping({"/settings/profile", "/profile"})
+    @Operation(summary = "SuperAdmin profil ma'lumotlari (Ism, familiya, telefon, email, lavozim, avatar)")
+    public ResponseEntity<ApiResponse<SuperAdminProfileResponse>> getProfile() {
+        return ResponseEntity.ok(ApiResponse.ok("SuperAdmin profili", superAdminService.getSuperAdminProfile()));
+    }
+
+    @PutMapping({"/settings/profile", "/profile"})
+    @Operation(summary = "SuperAdmin profil ma'lumotlarini yangilash")
+    public ResponseEntity<ApiResponse<SuperAdminProfileResponse>> updateProfile(
+            @RequestBody SuperAdminProfileUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Profil muvaffaqiyatli saqlandi", superAdminService.updateSuperAdminProfile(request)));
+    }
+
+    @PostMapping({"/settings/change-password", "/change-password"})
+    @Operation(summary = "Xavfsizlik: SuperAdmin parolini yangilash (Joriy parol, Yangi parol, Tasdiqlash)")
+    public ResponseEntity<ApiResponse<Void>> changePassword(
+            @Valid @RequestBody ChangePasswordRequest request) {
+        superAdminService.changePassword(request);
+        return ResponseEntity.ok(ApiResponse.ok("Parol muvaffaqiyatli yangilandi", null));
+    }
+
+    // ==========================================
+    // 4. KUNMA-KUN DINAMIKA (DAILY DYNAMICS)
+    // ==========================================
+    @GetMapping("/orders/daily-dynamics")
+    @Operation(summary = "Kunma-kun buyurtmalar dinamikasi (masalan: 1-oktabrda 5 ta, 2-oktabrda 8 ta arxiv ma'lumotlar)")
+    public ResponseEntity<ApiResponse<DailyDynamicsResponse>> getDailyDynamics(
+            @RequestParam(required = false, defaultValue = "7") Integer days,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) Long farmId) {
+        return ResponseEntity.ok(ApiResponse.ok("Kunma-kun dinamika ma'lumotlari", superAdminService.getDailyDynamics(days, startDate, endDate, farmId)));
     }
 }

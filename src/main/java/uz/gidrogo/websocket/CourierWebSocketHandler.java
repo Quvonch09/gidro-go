@@ -28,8 +28,32 @@ public class CourierWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) {
         Long courierId = (Long) session.getAttributes().get("courierId");
         if (courierId != null) {
-            courierSessions.computeIfAbsent(courierId, k -> new CopyOnWriteArraySet<>()).add(session);
+            Set<WebSocketSession> set = courierSessions.computeIfAbsent(courierId, k -> new CopyOnWriteArraySet<>());
+            // Eski yopiq sessiyalarni tozalash
+            set.removeIf(s -> !s.isOpen());
+            set.add(session);
             log.info("Courier WS ulangan: courierId={}, sessionId={}", courierId, session.getId());
+            sendConnectedFrame(session, courierId);
+        } else {
+            log.warn("Courier WS ulangan lekin courierId topilmadi! sessionId={}", session.getId());
+        }
+    }
+
+    private void sendConnectedFrame(WebSocketSession session, Long courierId) {
+        if (session == null || !session.isOpen() || courierId == null) return;
+        try {
+            String connectedMsg = objectMapper.writeValueAsString(Map.of(
+                    "type", "CONNECTED",
+                    "courierId", courierId,
+                    "timestamp", Instant.now().toString()
+            ));
+            synchronized (session) {
+                if (session.isOpen()) {
+                    session.sendMessage(new TextMessage(connectedMsg));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("CONNECTED xabarini yuborishda xatolik: {}", e.getMessage());
         }
     }
 
@@ -50,14 +74,23 @@ public class CourierWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+        Long courierId = (Long) session.getAttributes().get("courierId");
         String payload = message.getPayload().trim();
+        if (payload.contains("CONNECT") || payload.contains("HELLO")) {
+            sendConnectedFrame(session, courierId);
+            return;
+        }
         if ("PING".equalsIgnoreCase(payload) || payload.contains("\"PING\"")) {
             try {
                 String pong = objectMapper.writeValueAsString(Map.of(
                         "type", "PONG",
                         "timestamp", Instant.now().toString()
                 ));
-                session.sendMessage(new TextMessage(pong));
+                synchronized (session) {
+                    if (session.isOpen()) {
+                        session.sendMessage(new TextMessage(pong));
+                    }
+                }
             } catch (IOException e) {
                 log.warn("PONG yuborishda xatolik: {}", e.getMessage());
             }
@@ -78,8 +111,12 @@ public class CourierWebSocketHandler extends TextWebSocketHandler {
             for (WebSocketSession session : sessions) {
                 if (session.isOpen()) {
                     try {
-                        session.sendMessage(textMessage);
-                        log.info("Courier WS xabar yuborildi: courierId={}, type={}", courierId, event);
+                        synchronized (session) {
+                            if (session.isOpen()) {
+                                session.sendMessage(textMessage);
+                                log.info("Courier WS xabar yuborildi: courierId={}, json={}", courierId, json);
+                            }
+                        }
                     } catch (IOException e) {
                         log.warn("Courier session {} ga yuborishda xatolik: {}", session.getId(), e.getMessage());
                     }

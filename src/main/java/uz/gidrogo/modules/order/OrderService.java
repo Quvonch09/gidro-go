@@ -40,6 +40,7 @@ public class OrderService {
     private final ClientAddressRepository clientAddressRepository;
     private final UserRepository userRepository;
     private final AssignmentService assignmentService;
+    private final @org.springframework.context.annotation.Lazy uz.gidrogo.modules.courier.CourierDispatchService courierDispatchService;
     private final uz.gidrogo.websocket.WebSocketEventPublisher eventPublisher;
 
     /**
@@ -206,6 +207,10 @@ public class OrderService {
             eventPublisher.publishOrderStatusChanged(order.getFarmId(), order.getCourierId(), order.getClientId(), response);
         } catch (Exception ignored) {}
 
+        try {
+            courierDispatchService.onOrderCancelled(order);
+        } catch (Exception ignored) {}
+
         return response;
     }
 
@@ -221,6 +226,7 @@ public class OrderService {
             throw new BadRequestException("Dastavkachi ushbu fermaga tegishli emas");
         }
 
+        Long oldCourierId = order.getCourierId();
         OrderStatus prev = order.getStatus();
         order.setCourierId(newCourierId);
         order.setStatus(OrderStatus.ASSIGNED);
@@ -237,6 +243,10 @@ public class OrderService {
         OrderResponse response = mapToResponse(order, false);
         try {
             eventPublisher.publishOrderAssigned(order.getFarmId(), newCourierId, response);
+        } catch (Exception ignored) {}
+
+        try {
+            courierDispatchService.onOrderReassigned(order, oldCourierId, newCourierId);
         } catch (Exception ignored) {}
 
         return response;

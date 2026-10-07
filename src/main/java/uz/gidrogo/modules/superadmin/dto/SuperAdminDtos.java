@@ -111,4 +111,81 @@ public class SuperAdminDtos {
         @NotNull(message = "Status kiritilishi shart")
         private String status; // ACTIVE, BLOCKED
     }
+
+    // ==========================================
+    // 3. SOZLAMALAR VA PROFIL (SETTINGS & PROFILE)
+    // ==========================================
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SuperAdminProfileResponse {
+        private Long id;
+        private String firstName;
+        private String lastName;
+        private String fullName;
+        private String phone;
+        private String email;
+        private String role;
+        private String roleTitle; // "Bosh Platforma Administratori"
+        private String avatarUrl;
+        private Instant createdAt;
+        private String formattedCreatedAt;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SuperAdminProfileUpdateRequest {
+        private String firstName;
+        private String lastName;
+        private String fullName;
+        private String phone;
+        private String email;
+        private String avatarUrl;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ChangePasswordRequest {
+        @NotBlank(message = "Joriy parol kiritilishi shart")
+        private String currentPassword;
+
+        @NotBlank(message = "Yangi parol kiritilishi shart")
+        private String newPassword;
+
+        private String confirmPassword;
+    }
+
+    // ==========================================
+    // 4. KUNMA-KUN DINAMIKA (DAILY DYNAMICS)
+    // ==========================================
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class DailyDynamicsResponse {
+        private long totalOrders;
+        private double totalRevenue;
+        private String startDate;
+        private String endDate;
+        private List<DailyDynamicsItem> dynamics;
+        private List<DailyDynamicsItem> days;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class DailyDynamicsItem {
+        private String date;           // "2026-10-01"
+        private String formattedDate;  // "1-oktabr"
+        private String dayOfWeek;      // "Payshanba"
+        private long totalOrders;
+        private long completedOrders;
+        private long cancelledOrders;
+        private double totalAmount;
+        private double revenue;
+    }
 }
