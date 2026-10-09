@@ -76,6 +76,9 @@ public class FinanceDtos {
         private BigDecimal warehouseBottles;
         private long activeCouriers;
         private long totalClients;
+        private Double incomeChangePercent;
+        private Double ordersChangePercent;
+        private Double clientsChangePercent;
         private List<uz.gidrogo.modules.order.dto.OrderDtos.OrderResponse> recentOrders;
     }
 }

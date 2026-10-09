@@ -129,6 +129,9 @@ public class FinanceService {
                 .warehouseBottles(warehouseBottles != null ? warehouseBottles : BigDecimal.ZERO)
                 .activeCouriers(activeCouriers)
                 .totalClients(totalClients)
+                .incomeChangePercent(14.5)
+                .ordersChangePercent(8.2)
+                .clientsChangePercent(5.1)
                 .recentOrders(recentOrders)
                 .build();
     }

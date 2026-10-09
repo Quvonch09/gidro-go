@@ -39,12 +39,61 @@ public class BossController {
     private final OrderService orderService;
     private final CourierService courierService;
     private final ClientService clientService;
+    private final BossService bossService;
 
     @GetMapping("/dashboard")
     @Operation(summary = "Boss boshqaruv ko'rsatkichlari (tushum, xarajat, buyurtmalar, zaxira, kuryerlar)")
     public ResponseEntity<ApiResponse<DashboardResponse>> getDashboard() {
         Long farmId = SecurityUtils.getCurrentFarmId();
         return ResponseEntity.ok(ApiResponse.ok(financeService.getDashboard(farmId)));
+    }
+
+    @GetMapping("/farm")
+    @Operation(summary = "Ferma texnik pasporti va laboratoriya tahlillari")
+    public ResponseEntity<ApiResponse<BossDtos.FarmTechnicalPassportResponse>> getFarmTechnicalPassport() {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getFarmTechnicalPassport(farmId)));
+    }
+
+    @GetMapping("/analytics/growth")
+    @Operation(summary = "Davriy biznes o'sishi va analitika (oylar va choraklar dinamikasi)")
+    public ResponseEntity<ApiResponse<BossDtos.BusinessGrowthResponse>> getBusinessGrowth(
+            @RequestParam(required = false, defaultValue = "quarter") String period,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer quarter) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getBusinessGrowth(farmId, period, year, quarter)));
+    }
+
+    @GetMapping("/finance/chart")
+    @Operation(summary = "Moliyaviy ko'rsatkichlar dinamikasi grafigi (vaqt bo'yicha saralangan)")
+    public ResponseEntity<ApiResponse<List<BossDtos.FinanceChartItem>>> getFinanceChart(
+            @RequestParam(required = false, defaultValue = "week") String period) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getFinanceChart(farmId, period)));
+    }
+
+    @GetMapping("/sales/products-summary")
+    @Operation(summary = "Mahsulotlar toifalari bo'yicha sotuv tahlili")
+    public ResponseEntity<ApiResponse<List<BossDtos.ProductSalesSummaryResponse>>> getProductsSalesSummary() {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getProductsSalesSummary(farmId)));
+    }
+
+    @GetMapping("/sales/summary")
+    @Operation(summary = "Savdo va mahsulotlar realizatsiyasi (kunlik/haftalik/oylik dinamika va kartochkalar)")
+    public ResponseEntity<ApiResponse<BossDtos.SalesRealizationSummaryResponse>> getSalesRealizationSummary(
+            @RequestParam(required = false, defaultValue = "today") String period,
+            @RequestParam(required = false) Long productId) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getSalesRealizationSummary(farmId, period, productId)));
+    }
+
+    @GetMapping("/clients/segments")
+    @Operation(summary = "CRM Mijozlar toifalari (B2C, B2B, ulgurji)")
+    public ResponseEntity<ApiResponse<BossDtos.ClientSegmentsResponse>> getClientSegments() {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getClientSegments(farmId)));
     }
 
     @GetMapping("/orders")
@@ -82,9 +131,19 @@ public class BossController {
     }
 
     @GetMapping("/staff")
-    @Operation(summary = "Fermaning barcha xodimlari ro'yxati")
-    public ResponseEntity<ApiResponse<List<StaffResponse>>> getStaff() {
-        return ResponseEntity.ok(ApiResponse.ok(staffService.getFarmStaff()));
+    @Operation(summary = "Fermaning barcha xodimlari ro'yxati (qidiruv va rol filtri bilan)")
+    public ResponseEntity<ApiResponse<List<BossDtos.EnhancedStaffItemResponse>>> getStaff(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String role) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getEnhancedStaffList(farmId, search, role)));
+    }
+
+    @GetMapping("/staff/summary")
+    @Operation(summary = "Xodimlar va dastavkachilar monitoringi statistikasi (kartochkalar uchun)")
+    public ResponseEntity<ApiResponse<BossDtos.StaffSummaryResponse>> getStaffSummary() {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getStaffSummary(farmId)));
     }
 
     @PatchMapping("/staff/{id}/status")

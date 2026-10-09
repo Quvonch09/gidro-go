@@ -950,5 +950,64 @@ public class CourierService {
         return Instant.parse(str);
     }
 
+    public List<ManagerCourierItemResponse> getManagerCouriers(Long farmId) {
+        if (farmId == null) {
+            farmId = SecurityUtils.getCurrentFarmId();
+        }
+        if (farmId == null) {
+            throw new BadRequestException("Ferma aniqlanmadi");
+        }
+
+        List<User> couriers = userRepository.findAllByFarmIdAndRole(farmId, Role.COURIER);
+        List<ManagerCourierItemResponse> list = new ArrayList<>();
+
+        Instant startOfToday = LocalDate.now(ZoneId.of("Asia/Tashkent")).atStartOfDay(ZoneId.of("Asia/Tashkent")).toInstant();
+
+        for (User c : couriers) {
+            boolean isOnline = false;
+            try {
+                String onlineVal = redisTemplate.opsForValue().get("courier:online:" + c.getId());
+                isOnline = "true".equalsIgnoreCase(onlineVal);
+            } catch (Exception ignored) {}
+
+            List<Order> activeOrders = orderRepository.findAllByCourierIdAndStatusIn(
+                    c.getId(),
+                    List.of(OrderStatus.ASSIGNED, OrderStatus.ON_THE_WAY, OrderStatus.NEARBY)
+            );
+
+            String status;
+            String statusLabel;
+            if (!isOnline) {
+                status = "inactive";
+                statusLabel = "Nofaol";
+            } else if (!activeOrders.isEmpty()) {
+                status = "delivering";
+                statusLabel = "Yetkazmoqda";
+            } else {
+                status = "free";
+                statusLabel = "Bo'sh";
+            }
+
+            BigDecimal deliveredToday = orderRepository.sumDeliveredBottlesByCourierSince(c.getId(), startOfToday);
+
+            list.add(ManagerCourierItemResponse.builder()
+                    .id(c.getId())
+                    .fullName(c.getFullName())
+                    .phone(c.getPhone())
+                    .vehicleModel(c.getVehicleModel())
+                    .vehiclePlateNumber(c.getVehiclePlateNumber())
+                    .maxCapacity(c.getMaxCapacity() != null ? c.getMaxCapacity() : 40)
+                    .isOnline(isOnline)
+                    .status(status)
+                    .statusLabel(statusLabel)
+                    .activeOrdersCount(activeOrders.size())
+                    .todayDeliveredBottles(deliveredToday != null ? deliveredToday : BigDecimal.ZERO)
+                    .avatarUrl(c.getAvatarUrl() != null && !c.getAvatarUrl().isBlank() ? c.getAvatarUrl() :
+                            "https://ui-avatars.com/api/?name=" + (c.getFullName() != null ? c.getFullName().replace(" ", "+") : "Courier") + "&background=0D8ABC&color=fff&rounded=true")
+                    .build());
+        }
+        return list;
+    }
+
     private record ParsedLocation(double lat, double lon, Instant timestamp) {}
 }

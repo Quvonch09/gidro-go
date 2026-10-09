@@ -352,6 +352,196 @@ public class OrderService {
         return mapToResponse(order, false);
     }
 
+    public OrderResponse getManagerOrderById(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Buyurtma topilmadi: ID=" + orderId));
+        Long currentFarmId = SecurityUtils.getCurrentFarmId();
+        if (currentFarmId != null && !currentFarmId.equals(order.getFarmId())) {
+            throw new BadRequestException("Ushbu buyurtma sizning fermangizga tegishli emas");
+        }
+        return mapToResponse(order, false);
+    }
+
+    @Transactional
+    public OrderResponse updateOrderStatusByManager(Long orderId, String newStatusStr) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Buyurtma topilmadi: ID=" + orderId));
+        Long currentFarmId = SecurityUtils.getCurrentFarmId();
+        if (currentFarmId != null && !currentFarmId.equals(order.getFarmId())) {
+            throw new BadRequestException("Ushbu buyurtma sizning fermangizga tegishli emas");
+        }
+
+        OrderStatus newStatus;
+        try {
+            if ("PROCESSING".equalsIgnoreCase(newStatusStr)) {
+                newStatus = OrderStatus.PREPARING;
+            } else {
+                newStatus = OrderStatus.valueOf(newStatusStr.toUpperCase());
+            }
+        } catch (Exception e) {
+            throw new BadRequestException("Noto'g'ri status: " + newStatusStr);
+        }
+
+        OrderStatus prev = order.getStatus();
+        order.setStatus(newStatus);
+        if (newStatus == OrderStatus.DELIVERED) {
+            order.setDeliveredAt(Instant.now());
+        } else if (newStatus == OrderStatus.COMPLETED) {
+            order.setCompletedAt(Instant.now());
+            order.setPaymentStatus(PaymentStatus.PAID);
+        }
+        order = orderRepository.save(order);
+
+        statusHistoryRepository.save(OrderStatusHistory.builder()
+                .orderId(order.getId())
+                .fromStatus(prev)
+                .toStatus(newStatus)
+                .changedBy(SecurityUtils.getCurrentUserId())
+                .build());
+
+        OrderResponse resp = mapToResponse(order, false);
+        try {
+            eventPublisher.publishOrderStatusChanged(order.getFarmId(), order.getCourierId(), order.getClientId(), resp);
+        } catch (Exception ignored) {}
+
+        if (newStatus == OrderStatus.CANCELLED) {
+            try {
+                courierDispatchService.onOrderCancelled(order);
+            } catch (Exception ignored) {}
+        }
+
+        return resp;
+    }
+
+    @Transactional
+    public OrderResponse assignOrder(Long orderId, Long courierId) {
+        return reassignOrder(orderId, courierId);
+    }
+
+    @Transactional
+    public OrderResponse createManagerOrder(ManagerOrderCreateRequest request) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        if (farmId == null) {
+            throw new BadRequestException("Ferma aniqlanmadi");
+        }
+
+        Farm farm = farmRepository.findById(farmId)
+                .orElseThrow(() -> new ResourceNotFoundException("Ferma topilmadi"));
+
+        // 1. Mijozni qidirish yoki yaratish
+        String phone = request.getPhone().replaceAll("\\s+", "");
+        User clientUser = userRepository.findByPhone(phone).orElse(null);
+        if (clientUser == null) {
+            clientUser = User.builder()
+                    .phone(phone)
+                    .fullName(request.getCustomerName())
+                    .role(uz.gidrogo.modules.auth.Role.CLIENT)
+                    .passwordHash("EXTERNAL_NO_LOGIN")
+                    .status("ACTIVE")
+                    .build();
+            clientUser = userRepository.save(clientUser);
+        }
+
+        final Long finalUserId = clientUser.getId();
+        Client client = clientRepository.findByUserId(finalUserId).orElseGet(() -> {
+            Client newClient = Client.builder()
+                    .userId(finalUserId)
+                    .farmId(farmId)
+                    .ratingAvg(BigDecimal.valueOf(5.0))
+                    .build();
+            return clientRepository.save(newClient);
+        });
+
+        // 2. Mahsulotni aniqlash
+        Product product = null;
+        if (request.getProductId() != null) {
+            product = productRepository.findById(request.getProductId()).orElse(null);
+        }
+        if (product == null) {
+            product = productRepository.findAllByFarmIdAndActiveTrue(farmId).stream().findFirst().orElse(null);
+        }
+        if (product == null) {
+            product = productRepository.findAllByFarmId(farmId).stream().findFirst().orElse(null);
+        }
+        if (product == null) {
+            product = Product.builder()
+                    .farmId(farmId)
+                    .name("18.9L Kapsula")
+                    .description("Toza ichimlik suvi 18.9L")
+                    .price(BigDecimal.valueOf(15000))
+                    .depositPrice(BigDecimal.valueOf(35000))
+                    .volumeLiters(BigDecimal.valueOf(18.9))
+                    .active(true)
+                    .build();
+            product = productRepository.save(product);
+        }
+
+        int count = request.getBottlesCount() != null && request.getBottlesCount() > 0 ? request.getBottlesCount() : 1;
+        BigDecimal totalSum = product.getPrice().multiply(BigDecimal.valueOf(count));
+
+        BigDecimal lat = request.getLatitude() != null ? BigDecimal.valueOf(request.getLatitude()) : farm.getLatitude();
+        BigDecimal lon = request.getLongitude() != null ? BigDecimal.valueOf(request.getLongitude()) : farm.getLongitude();
+
+        PaymentMethod pm = PaymentMethod.CASH;
+        if (request.getPaymentMethod() != null && "ONLINE".equalsIgnoreCase(request.getPaymentMethod())) {
+            pm = PaymentMethod.ONLINE;
+        }
+
+        String orderNum = "ORD-" + System.currentTimeMillis() % 10000000 + "-" + farmId;
+
+        OrderStatus initialStatus = request.getCourierId() != null ? OrderStatus.ASSIGNED : OrderStatus.SEARCHING;
+
+        Order order = Order.builder()
+                .orderNumber(orderNum)
+                .cartGroupId(UUID.randomUUID())
+                .farmId(farmId)
+                .clientId(client.getId())
+                .courierId(request.getCourierId())
+                .status(initialStatus)
+                .paymentMethod(pm)
+                .paymentStatus(PaymentStatus.PENDING)
+                .totalSum(totalSum)
+                .deliveryAddress(request.getAddress())
+                .latitude(lat)
+                .longitude(lon)
+                .clientComment(request.getNotes())
+                .assignedAt(request.getCourierId() != null ? Instant.now() : null)
+                .build();
+        order = orderRepository.save(order);
+
+        OrderItem item = OrderItem.builder()
+                .orderId(order.getId())
+                .productId(product.getId())
+                .quantity(BigDecimal.valueOf(count))
+                .unitPrice(product.getPrice())
+                .build();
+        orderItemRepository.save(item);
+
+        statusHistoryRepository.save(OrderStatusHistory.builder()
+                .orderId(order.getId())
+                .fromStatus(OrderStatus.NEW)
+                .toStatus(initialStatus)
+                .changedBy(SecurityUtils.getCurrentUserId())
+                .build());
+
+        OrderResponse resp = mapToResponse(order, false);
+
+        if (request.getCourierId() != null) {
+            try {
+                eventPublisher.publishOrderAssigned(farmId, request.getCourierId(), resp);
+            } catch (Exception ignored) {}
+            try {
+                courierDispatchService.onOrderReassigned(order, null, request.getCourierId());
+            } catch (Exception ignored) {}
+        } else {
+            try {
+                courierDispatchService.dispatchOrderToNextCandidate(order);
+            } catch (Exception ignored) {}
+        }
+
+        return resp;
+    }
+
     public OrderResponse mapToResponse(Order order, boolean hideTotalForCourier) {
         Farm farm = farmRepository.findById(order.getFarmId()).orElse(null);
         Client client = clientRepository.findById(order.getClientId()).orElse(null);

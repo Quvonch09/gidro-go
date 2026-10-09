@@ -126,4 +126,42 @@ public class OrderDtos {
         private int currentPage;
         private int pageSize;
     }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OrderStatusUpdateRequest {
+        @jakarta.validation.constraints.NotBlank(message = "Status kiritilishi shart")
+        private String status; // CONFIRMED, PROCESSING, CANCELLED, DELIVERED, COMPLETED
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ManagerOrderCreateRequest {
+        @jakarta.validation.constraints.NotBlank(message = "Mijoz ismi kiritilishi shart")
+        private String customerName;
+
+        @jakarta.validation.constraints.NotBlank(message = "Telefon raqami kiritilishi shart")
+        private String phone;
+
+        @jakarta.validation.constraints.NotBlank(message = "Manzil kiritilishi shart")
+        private String address;
+
+        private Double latitude;
+        private Double longitude;
+        private Integer bottlesCount;
+        private Long productId;
+        private String paymentMethod; // CASH or ONLINE
+        private String notes;
+        private Long courierId;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AssignCourierRequest {
+        @NotNull(message = "Dastavkachi ID kiritilishi shart")
+        private Long courierId;
+    }
 }

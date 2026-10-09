@@ -114,12 +114,47 @@ public class ManagerController {
         return ResponseEntity.ok(ApiResponse.ok(orderService.getManagerOrders(status, false, null, startDate, endDate, true)));
     }
 
+    @GetMapping("/orders/{id}")
+    @Operation(summary = "Bitta buyurtmaning to'liq ma'lumotlari (Detail API — mijoz, manzil, GPS, mahsulotlar, kuryer)")
+    public ResponseEntity<ApiResponse<OrderResponse>> getOrderById(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.getManagerOrderById(id)));
+    }
+
+    @PatchMapping("/orders/{id}/status")
+    @Operation(summary = "Buyurtma holatini o'zgartirish (CONFIRMED, PROCESSING/PREPARING, CANCELLED, DELIVERED, COMPLETED)")
+    public ResponseEntity<ApiResponse<OrderResponse>> updateOrderStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody OrderStatusUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Buyurtma holati yangilandi", orderService.updateOrderStatusByManager(id, request.getStatus())));
+    }
+
+    @PostMapping("/orders")
+    @Operation(summary = "Menejer tomonidan yangi buyurtma kiritish (Manual Order Create)")
+    public ResponseEntity<ApiResponse<OrderResponse>> createOrder(@Valid @RequestBody ManagerOrderCreateRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Buyurtma muvaffaqiyatli yaratildi", orderService.createManagerOrder(request)));
+    }
+
+    @PostMapping("/orders/{id}/assign")
+    @Operation(summary = "Buyurtmaga kuryer biriktirish (Assign Order API)")
+    public ResponseEntity<ApiResponse<OrderResponse>> assignOrder(
+            @PathVariable Long id,
+            @Valid @RequestBody AssignCourierRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Kuryer biriktirildi", orderService.assignOrder(id, request.getCourierId())));
+    }
+
     @PostMapping("/orders/{id}/reassign")
     @Operation(summary = "Buyurtmani boshqa dastavkachiga qayta biriktirish")
     public ResponseEntity<ApiResponse<OrderResponse>> reassignOrder(
             @PathVariable Long id,
             @Valid @RequestBody ReassignRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(orderService.reassignOrder(id, request.getNewCourierId())));
+    }
+
+    @GetMapping("/couriers")
+    @Operation(summary = "Fermaning barcha dastavkachilari ro'yxati (transport, raqam, holat: free, delivering, inactive)")
+    public ResponseEntity<ApiResponse<List<ManagerCourierItemResponse>>> getCouriers() {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok(courierService.getManagerCouriers(farmId)));
     }
 
     @GetMapping("/stock/warehouse")

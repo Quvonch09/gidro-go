@@ -282,4 +282,23 @@ public class CourierDtos {
         private String code;
         private String label; // O'zbek tilidagi nomi
     }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ManagerCourierItemResponse {
+        private Long id;
+        private String fullName;
+        private String phone;
+        private String vehicleModel;
+        private String vehiclePlateNumber;
+        private Integer maxCapacity;
+        private boolean isOnline;
+        private String status; // "free", "delivering", "inactive"
+        private String statusLabel; // "Bo'sh", "Yetkazmoqda", "Nofaol"
+        private long activeOrdersCount;
+        private BigDecimal todayDeliveredBottles;
+        private String avatarUrl;
+    }
 }

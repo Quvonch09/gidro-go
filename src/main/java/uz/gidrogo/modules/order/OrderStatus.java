@@ -2,6 +2,7 @@ package uz.gidrogo.modules.order;
 
 public enum OrderStatus {
     NEW,
+    CONFIRMED,
     SEARCHING,
     ASSIGNED,
     ON_THE_WAY,
