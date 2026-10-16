@@ -1,0 +1,13 @@
+# Prod profili: SPRING_PROFILES_ACTIVE=prod
+# BE-06 / SEC-01: Swagger UI va /v3/api-docs prod'da o'chirilgan (so'rov → 401).
+# openapi.json har chiqarishda repodagi docs/openapi.json orqali frontendga beriladi.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+app:
+  security:
+    # Nginx o'rnatilgach (BE-20) TRUST_FORWARDED_HEADERS=true qiling
+    trust-forwarded-headers: ${TRUST_FORWARDED_HEADERS:false}

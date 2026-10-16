@@ -31,6 +31,16 @@ public class CourierOffer {
     @Column(name = "distance_meters")
     private Integer distanceMeters;
 
+    @Column(name = "distance_basis", length = 30)
+    @Builder.Default
+    private String distanceBasis = "CURRENT_LOCATION"; // CURRENT_LOCATION, ANCHOR_ORDER
+
+    @Column(name = "anchor_order_id")
+    private Long anchorOrderId;
+
+    @Column(name = "eta_seconds")
+    private Integer etaSeconds;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();

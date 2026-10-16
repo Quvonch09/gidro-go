@@ -122,18 +122,9 @@ public class ClientService {
     }
 
     public List<AvailableFarmResponse> getFarmsByFilter(String city, String district, Double lat, Double lon, String status, int page, int size) {
-        FarmStatus targetStatus = null;
-        if (status != null && !status.isBlank() && !status.equalsIgnoreCase("ALL")) {
-            try {
-                targetStatus = FarmStatus.valueOf(status.toUpperCase().trim());
-            } catch (Exception ignored) {
-                targetStatus = FarmStatus.ACTIVE;
-            }
-        } else if (status == null) {
-            targetStatus = FarmStatus.ACTIVE;
-        }
-
-        List<Farm> farms = (targetStatus != null) ? farmRepository.findAllByStatus(targetStatus) : farmRepository.findAll();
+        // BE-14 / GG-46: ochiq (mijoz) ro'yxatida faqat ACTIVE fermalar. status parametri e'tiborsiz qoldiriladi —
+        // bloklangan yoki nofaol fermalar hech qachon ko'rsatilmaydi.
+        List<Farm> farms = farmRepository.findAllByStatus(FarmStatus.ACTIVE);
         List<AvailableFarmResponse> list = new ArrayList<>();
 
         for (Farm farm : farms) {

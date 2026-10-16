@@ -31,12 +31,10 @@ public class FileController {
     @Value("${app.upload.dir:uploads}")
     private String uploadDir;
 
-    @Value("${app.upload.base-url:http://169.58.215.170:8080}")
-    private String baseUrl;
-
     private static final long MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
-    private static final List<String> ALLOWED_TYPES = List.of(
-            "image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"
+    /** Ruxsat etilgan MIME turi → saqlanadigan kengaytma (asl fayl nomidagi kengaytmaga ishonilmaydi). */
+    private static final Map<String, String> ALLOWED_TYPES = Map.of(
+            "image/jpeg", ".jpg", "image/jpg", ".jpg", "image/png", ".png", "image/webp", ".webp", "image/gif", ".gif"
     );
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -49,7 +47,7 @@ public class FileController {
         }
 
         String contentType = file.getContentType();
-        if (contentType == null || !ALLOWED_TYPES.contains(contentType.toLowerCase())) {
+        if (contentType == null || !ALLOWED_TYPES.containsKey(contentType.toLowerCase())) {
             throw new BadRequestException("Faqat rasm fayllar qabul qilinadi (JPEG, PNG, WEBP, GIF)");
         }
 
@@ -65,16 +63,14 @@ public class FileController {
         Files.createDirectories(uploadPath);
 
         // Noyob fayl nomi
-        String originalName = file.getOriginalFilename();
-        String ext = (originalName != null && originalName.contains("."))
-                ? originalName.substring(originalName.lastIndexOf("."))
-                : ".jpg";
+        String ext = ALLOWED_TYPES.get(contentType.toLowerCase());
         String fileName = UUID.randomUUID().toString().replace("-", "") + ext;
 
         Path filePath = uploadPath.resolve(fileName).toAbsolutePath().normalize();
         file.transferTo(filePath);
 
-        String fileUrl = baseUrl + "/api/files/view/" + subDir + "/" + fileName;
+        // BE-13: nisbiy yo'l — HTTPS sahifada mixed-content bo'lmaydi, domen o'zgarsa ham ishlaydi
+        String fileUrl = "/api/files/view/" + subDir + "/" + fileName;
         log.info("Fayl yuklandi: {}", fileUrl);
 
         return ResponseEntity.ok(ApiResponse.ok("Fayl muvaffaqiyatli yuklandi",

@@ -21,6 +21,7 @@ import uz.gidrogo.modules.order.dto.OrderDtos.*;
 import uz.gidrogo.modules.product.dto.ProductDtos.*;
 import uz.gidrogo.modules.stock.StockService;
 import uz.gidrogo.modules.stock.dto.StockDtos.*;
+import java.math.BigDecimal;
 
 import org.springframework.format.annotation.DateTimeFormat;
 
@@ -39,6 +40,7 @@ public class ManagerController {
     private final FinanceService financeService;
     private final CourierService courierService;
     private final ClientService clientService;
+    private final uz.gidrogo.modules.courier.CourierDispatchService courierDispatchService;
 
     @GetMapping("/dashboard")
     @Operation(summary = "Manager operatsion boshqaruv ko'rsatkichlari (tushum, xarajat, buyurtmalar, zaxira, kuryerlar)")
@@ -150,6 +152,12 @@ public class ManagerController {
         return ResponseEntity.ok(ApiResponse.ok(orderService.reassignOrder(id, request.getNewCourierId())));
     }
 
+    @PostMapping("/orders/{id}/retry-dispatch")
+    @Operation(summary = "PREPARING buyurtmani darhol qayta taqsimlash navbatiga qo'yish (4-talab)")
+    public ResponseEntity<ApiResponse<OrderResponse>> retryDispatch(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok("Qayta qidirish boshlandi", courierDispatchService.retryDispatch(id)));
+    }
+
     @GetMapping("/couriers")
     @Operation(summary = "Fermaning barcha dastavkachilari ro'yxati (transport, raqam, holat: free, delivering, inactive)")
     public ResponseEntity<ApiResponse<List<ManagerCourierItemResponse>>> getCouriers() {
@@ -169,6 +177,22 @@ public class ManagerController {
     public ResponseEntity<ApiResponse<StockItemResponse>> updateWarehouseStock(@Valid @RequestBody WarehouseStockUpdateRequest request) {
         Long farmId = SecurityUtils.getCurrentFarmId();
         return ResponseEntity.ok(ApiResponse.ok(stockService.updateWarehouseStock(farmId, request.getProductId(), request.getQuantity())));
+    }
+
+    @GetMapping("/stock/vehicle/{courierId}")
+    @Operation(summary = "Kuryer mashinasidagi zaxira")
+    public ResponseEntity<ApiResponse<List<StockItemResponse>>> getCourierVehicleStock(@PathVariable Long courierId) {
+        return ResponseEntity.ok(ApiResponse.ok(stockService.getVehicleStock(courierId)));
+    }
+
+    @PutMapping("/stock/vehicle")
+    @Operation(summary = "Mashina zaxirasini qo'lda o'zgartirish (band qilinganidan kamaytirish taqiqlangan)")
+    public ResponseEntity<ApiResponse<String>> updateVehicleStock(
+            @RequestParam Long courierId,
+            @RequestParam Long productId,
+            @RequestParam BigDecimal quantity) {
+        stockService.adjustVehicleStockManual(courierId, productId, quantity);
+        return ResponseEntity.ok(ApiResponse.ok("Mashina zaxirasi muvaffaqiyatli o'zgartirildi"));
     }
 
     @GetMapping("/finance/summary")

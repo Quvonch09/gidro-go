@@ -87,6 +87,37 @@ public class Order {
     @Column(name = "completed_at")
     private Instant completedAt;
 
+    @Column(name = "delivery_sequence")
+    @Builder.Default
+    private Integer deliverySequence = 1;
+
+    @Column(name = "anchor_order_id")
+    private Long anchorOrderId;
+
+    @Column(name = "preparing_since")
+    private Instant preparingSince;
+
+    @Column(name = "preparing_reason", length = 50)
+    private String preparingReason;
+
+    @Column(name = "dispatch_attempts", nullable = false)
+    @Builder.Default
+    private Integer dispatchAttempts = 0;
+
+    @Column(name = "products_sum", precision = 14, scale = 2)
+    private BigDecimal productsSum;
+
+    @Column(name = "tara_qty_estimated")
+    @Builder.Default
+    private Integer taraQtyEstimated = 0;
+
+    @Column(name = "tara_qty_final")
+    private Integer taraQtyFinal;
+
+    @Column(name = "tara_sum", precision = 14, scale = 2)
+    @Builder.Default
+    private BigDecimal taraSum = BigDecimal.ZERO;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();

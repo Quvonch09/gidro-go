@@ -20,6 +20,7 @@ public class StaffService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final uz.gidrogo.modules.cash.CashService cashService;
 
     @Transactional
     public StaffResponse createStaff(StaffCreateRequest request) {
@@ -71,9 +72,40 @@ public class StaffService {
             throw new BadRequestException("Ushbu xodim boshqa fermaga tegishli");
         }
 
+        if (("DELETED".equalsIgnoreCase(status) || "REMOVED".equalsIgnoreCase(status)) && staff.getRole() == Role.COURIER) {
+            java.math.BigDecimal balance = cashService.calculateCourierBalance(staff.getId());
+            if (balance != null && balance.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.CONFLICT,
+                        "CASH_BALANCE_NOT_ZERO: Kassa balansi 0 dan katta dastavkachini o'chirib bo'lmaydi");
+            }
+        }
+
         staff.setStatus(status);
         staff = userRepository.save(staff);
         return mapToResponse(staff);
+    }
+
+    @Transactional
+    public void deleteStaff(Long staffId) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        User staff = userRepository.findById(staffId)
+                .orElseThrow(() -> new ResourceNotFoundException("Xodim topilmadi"));
+
+        if (!farmId.equals(staff.getFarmId())) {
+            throw new BadRequestException("Ushbu xodim boshqa fermaga tegishli");
+        }
+
+        if (staff.getRole() == Role.COURIER) {
+            java.math.BigDecimal balance = cashService.calculateCourierBalance(staff.getId());
+            if (balance != null && balance.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.CONFLICT,
+                        "CASH_BALANCE_NOT_ZERO: Kassa balansi 0 dan katta dastavkachini o'chirib bo'lmaydi");
+            }
+        }
+
+        userRepository.delete(staff);
     }
 
     private StaffResponse mapToResponse(User user) {

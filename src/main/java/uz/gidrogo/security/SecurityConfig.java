@@ -34,6 +34,10 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
 
+    /** BE-06 / SEC-01: prod profilida springdoc o'chiriladi va Swagger yo'llari ochiq bo'lmaydi. */
+    @org.springframework.beans.factory.annotation.Value("${springdoc.api-docs.enabled:true}")
+    private boolean apiDocsEnabled;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -46,14 +50,14 @@ public class SecurityConfig {
                             response.setContentType("application/json;charset=UTF-8");
                             response.setHeader("Access-Control-Allow-Origin", request.getHeader("Origin") != null ? request.getHeader("Origin") : "*");
                             response.setHeader("Access-Control-Allow-Credentials", "true");
-                            response.getWriter().write("{\"success\":false,\"message\":\"Avtorizatsiyadan o'tilmagan yoki token eskirgan (401 Unauthorized)\",\"timestamp\":\"" + java.time.Instant.now() + "\"}");
+                            response.getWriter().write("{\"success\":false,\"code\":\"UNAUTHORIZED\",\"message\":\"Avtorizatsiyadan o'tilmagan yoki token eskirgan (401 Unauthorized)\",\"timestamp\":\"" + java.time.Instant.now() + "\"}");
                         })
                         .accessDeniedHandler((request, response, accessDeniedException) -> {
                             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                             response.setContentType("application/json;charset=UTF-8");
                             response.setHeader("Access-Control-Allow-Origin", request.getHeader("Origin") != null ? request.getHeader("Origin") : "*");
                             response.setHeader("Access-Control-Allow-Credentials", "true");
-                            response.getWriter().write("{\"success\":false,\"message\":\"Ushbu amalni bajarish uchun ruxsatingiz yetarli emas (403 Forbidden)\",\"timestamp\":\"" + java.time.Instant.now() + "\"}");
+                            response.getWriter().write("{\"success\":false,\"code\":\"FORBIDDEN\",\"message\":\"Ushbu amalni bajarish uchun ruxsatingiz yetarli emas (403 Forbidden)\",\"timestamp\":\"" + java.time.Instant.now() + "\"}");
                         })
                 )
                 .authorizeHttpRequests(auth -> auth
@@ -66,20 +70,18 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/client/farms", "/api/client/farms/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/client/banners", "/api/client/banners/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/files/view/**").permitAll()
-                        .requestMatchers(
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/swagger-ui.html",
-                                "/ws/**",
-                                "/api/telegram/**"
-                        ).permitAll()
+                        .requestMatchers("/ws/**", "/api/telegram/**").permitAll()
+                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html")
+                        .access((authentication, context) ->
+                                new org.springframework.security.authorization.AuthorizationDecision(apiDocsEnabled))
 
                         // Role-based endpoints (RBAC matrix)
                         .requestMatchers("/api/superadmin/**").hasRole("SUPER_ADMIN")
                         .requestMatchers("/api/boss/**").hasRole("BOSS")
                         .requestMatchers("/api/manager/**").hasAnyRole("MANAGER", "BOSS")
-                        .requestMatchers("/api/courier/**").hasAnyRole("COURIER", "SUPER_ADMIN")
-                        .requestMatchers("/api/client/**").hasAnyRole("CLIENT", "SUPER_ADMIN")
+                        // BE-19 / CHK-08: har bir rol faqat o'z API'siga (GG-19, GG-25)
+                        .requestMatchers("/api/courier/**").hasRole("COURIER")
+                        .requestMatchers("/api/client/**").hasRole("CLIENT")
                         .requestMatchers("/api/files/**").authenticated()
 
                         .anyRequest().authenticated()

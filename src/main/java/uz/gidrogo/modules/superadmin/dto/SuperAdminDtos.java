@@ -1,28 +1,98 @@
 package uz.gidrogo.modules.superadmin.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.JsonNode;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import uz.gidrogo.modules.farm.BossActivationStatus;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
 public class SuperAdminDtos {
 
     // ==========================================
-    // 1. HUDUDIY TAQSIMOT (REGIONAL DISTRIBUTION)
+    // 0. DASHBOARD (BE-10, TZ §5)
+    // ==========================================
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class DashboardResponse {
+        private long totalFarms;
+        private long activeFarms;
+        private long blockedFarms;
+        private long inactiveFarms;
+        private long totalCouriers;
+        private long totalClients;
+        /** activeOrders + completedOrders + cancelledOrders + returnedOrders = totalOrders */
+        private long totalOrders;
+        private long activeOrders;
+        private long completedOrders;
+        private long cancelledOrders;
+        private long returnedOrders;
+        /** Tanlangan davr (standart: oxirgi 30 kun) va o'sish (oldingi teng davrga nisbatan). Global tushum yo'q (TZ §5.5). */
+        private PeriodStats period;
+        private Growth growth;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PeriodStats {
+        private String from;
+        private String to;
+        private String previousFrom;
+        private String previousTo;
+        private long newClients;
+        private long activeClients;
+        private long orders;
+        private long newFarms;
+    }
+
+    /** O'sish %: (joriy − oldingi) ÷ oldingi × 100; oldingi davr 0 bo'lsa null. */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Growth {
+        private Double clientsPercent;
+        private Double ordersPercent;
+        private Double farmsPercent;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class GrowthPoint {
+        private String periodStart;
+        private String periodEnd;
+        private long newClients;
+        private long activeClients;
+        private long orders;
+        private long newFarms;
+    }
+
+    // ==========================================
+    // 1. STATISTIKA (BE-15, TZ §11)
     // ==========================================
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     public static class RegionalDistributionResponse {
-        private String title;          // "Hududiy Taqsimot"
-        private String description;    // "Rahbarlarga biriktirilgan suv fermalari viloyatlar kesimida"
-        private long totalFarms;       // 48
+        private String from;
+        private String to;
+        private long totalFarms;
         private List<RegionItem> regions;
     }
 
@@ -31,34 +101,54 @@ public class SuperAdminDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class RegionItem {
-        private String regionName;     // "Toshkent viloyati", "Samarqand & Qashqadaryo", "Farg'ona vodiysi"
-        private long count;            // 18
-        private double percentage;     // 37.5
-        private String formattedText;  // "18 ta (37.5%)"
-        private String color;          // Rang kodi
+        /** farms.city; belgilanmagan bo'lsa "Belgilanmagan". */
+        private String regionName;
+        private long totalFarms;
+        private long activeFarms;
+        private long blockedFarms;
+        private long inactiveFarms;
+        /** totalFarms ning barcha fermalarga ulushi, %. */
+        private double percentage;
+        private long ordersInPeriod;
+        private long ordersPreviousPeriod;
+        private Double growthPercent;
+    }
 
-        // Frontend grafik va progress barlar uchun qo'shimcha aliaslar:
-        private String name;           // regionName bilan bir xil
-        private long value;            // count bilan bir xil
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OrdersByStatusResponse {
+        private String from;
+        private String to;
+        private Long farmId;
+        private long total;
+        private List<StatusCount> statuses;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StatusCount {
+        private String status;
+        private long count;
     }
 
     // ==========================================
-    // 2. FERMA EGALARI (BOSSES / FARM OWNERS)
+    // 2. FERMA EGALARI (BE-03, BE-16)
     // ==========================================
+    /** Ro'yxat bilan bir xil manba va filtrdan hisoblanadi: total = totalElements. */
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     public static class BossSummaryCards {
-        private long totalBosses;         // 48
-        private long activeBosses;        // 44
-        private long recentlyApproved;    // 5
-        private long blockedBosses;       // 4
-
-        private String jamiBosslarText;      // "48 nafar"
-        private String faolHisoblarText;     // "44 nafar"
-        private String yangiTasdiqlanganText;// "5 nafar"
-        private String bloklanganText;       // "4 nafar"
+        private long total;
+        private long active;
+        private long blocked;
+        /** Oxirgi 30 kunda qo'shilganlar. */
+        private long recentlyAdded;
     }
 
     @Data
@@ -66,18 +156,21 @@ public class SuperAdminDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class BossItemResponse {
-        private Long id;                  // Boss User ID
-        private String fullName;          // "Aliyev Bobur Mansurovich"
-        private String phone;             // "+998 90 123 45 67"
-        private String avatarUrl;         // Rasm URL
-        private Long farmId;              // 1
-        private String farmCode;          // "farm-001"
-        private String farmName;          // "Oazis Gidroponika Majmuasi"
-        private String status;            // "ACTIVE" or "BLOCKED"
-        private boolean active;           // true (toggle switch holati)
-        private String statusLabel;       // "Faol" or "Bloklangan"
+        private Long id;
+        private String fullName;
+        private String phone;
+        private String avatarUrl;
+        /** farms.boss_user_id dan (yagona manba). */
+        private Long farmId;
+        private String farmCode;
+        private String farmName;
+        /** Hisob holati: ACTIVE | BLOCKED */
+        private String status;
+        private boolean active;
+        private String statusLabel;
+        /** Faollashtirish holati: NOT_REQUESTED | PENDING | APPROVED | REJECTED */
+        private BossActivationStatus activationStatus;
         private Instant createdAt;
-        private String formattedCreatedAt;// "12.08.2026"
     }
 
     @Data
@@ -86,39 +179,59 @@ public class SuperAdminDtos {
     @AllArgsConstructor
     public static class BossListResponse {
         private BossSummaryCards summary;
-        private List<BossItemResponse> bosses;
-        private List<BossItemResponse> content; // bosses bilan bir xil
+        private List<BossItemResponse> content;
+        private int page;
+        private int size;
         private long totalElements;
+        private int totalPages;
     }
 
-
+    /** PUT /bosses/{id}. Bo'sh maydonlar o'zgartirilmaydi. */
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
     public static class BossUpdateRequest {
+        @Size(min = 2, max = 100, message = "Ism 2–100 belgidan iborat bo'lishi kerak")
         private String fullName;
+        @Pattern(regexp = "^\\+?[0-9 ()-]{9,20}$", message = "Telefon formati noto'g'ri. Masalan: +998901234567")
         private String phone;
         private String password;
         private Long farmId;
+        @Pattern(regexp = "^(ACTIVE|BLOCKED)$", message = "Status faqat ACTIVE yoki BLOCKED bo'lishi mumkin")
         private String status;
+        @Size(max = 500)
         private String avatarUrl;
     }
 
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class BossStatusUpdateRequest {
-        @NotNull(message = "Status kiritilishi shart")
-        private String status; // ACTIVE, BLOCKED
-    }
-
     // ==========================================
-    // 3. SOZLAMALAR VA PROFIL (SETTINGS & PROFILE)
+    // 3. AUDIT LOG (BE-12)
     // ==========================================
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    public static class AuditLogItem {
+        private Long id;
+        private Long actorId;
+        private String actorName;
+        private String action;
+        private String entityType;
+        private Long entityId;
+        /** {"old": ..., "new": ..., ...} */
+        private JsonNode metadata;
+        private String ipAddress;
+        private String userAgent;
+        private Instant createdAt;
+    }
+
+    // ==========================================
+    // 4. SOZLAMALAR VA PROFIL (BE-21)
+    // ==========================================
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public static class SuperAdminProfileResponse {
         private Long id;
         private String firstName;
@@ -127,21 +240,26 @@ public class SuperAdminDtos {
         private String phone;
         private String email;
         private String role;
-        private String roleTitle; // "Bosh Platforma Administratori"
         private String avatarUrl;
         private Instant createdAt;
-        private String formattedCreatedAt;
     }
 
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
     public static class SuperAdminProfileUpdateRequest {
+        @Size(max = 100)
         private String firstName;
+        @Size(max = 100)
         private String lastName;
+        @Size(max = 200)
         private String fullName;
+        @Pattern(regexp = "^\\+?[0-9 ()-]{9,20}$", message = "Telefon formati noto'g'ri. Masalan: +998901234567")
         private String phone;
+        @Email(message = "Email formati noto'g'ri")
+        @Size(max = 255)
         private String email;
+        @Size(max = 500)
         private String avatarUrl;
     }
 
@@ -155,22 +273,31 @@ public class SuperAdminDtos {
         @NotBlank(message = "Yangi parol kiritilishi shart")
         private String newPassword;
 
+        @NotBlank(message = "Yangi parolni tasdiqlash kiritilishi shart")
         private String confirmPassword;
     }
 
     // ==========================================
-    // 4. KUNMA-KUN DINAMIKA (DAILY DYNAMICS)
+    // 5. KUNMA-KUN DINAMIKA (BE-01, BE-10)
     // ==========================================
+    /**
+     * revenue/totalRevenue faqat farmId berilganda qaytariladi (TZ §5.5 — global tushum yo'q).
+     * Tushum — faqat COMPLETED, completed_at kuni bo'yicha (Asia/Tashkent). Tara — alohida.
+     */
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class DailyDynamicsResponse {
-        private long totalOrders;
-        private double totalRevenue;
+        private Long farmId;
         private String startDate;
         private String endDate;
-        private List<DailyDynamicsItem> dynamics;
+        private long totalOrders;
+        private long completedOrders;
+        private long cancelledOrders;
+        private BigDecimal totalRevenue;
+        private BigDecimal totalTaraRevenue;
         private List<DailyDynamicsItem> days;
     }
 
@@ -178,14 +305,20 @@ public class SuperAdminDtos {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class DailyDynamicsItem {
         private String date;           // "2026-10-01"
-        private String formattedDate;  // "1-oktabr"
         private String dayOfWeek;      // "Payshanba"
+        /** Shu kuni yaratilgan buyurtmalar. */
         private long totalOrders;
+        /** Shu kuni COMPLETED bo'lganlar (completed_at bo'yicha). */
         private long completedOrders;
+        /** Shu kuni yaratilib, hozir CANCELLED holatidagilar. */
         private long cancelledOrders;
-        private double totalAmount;
-        private double revenue;
+        /** Shu kuni yaratilgan (bekor qilinmagan) buyurtmalar summasi — TUSHUM EMAS. */
+        private BigDecimal orderedAmount;
+        /** Tushum (faqat farmId bilan). */
+        private BigDecimal revenue;
+        private BigDecimal taraRevenue;
     }
 }

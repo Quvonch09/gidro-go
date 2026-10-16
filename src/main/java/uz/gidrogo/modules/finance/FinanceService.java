@@ -12,13 +12,15 @@ import uz.gidrogo.modules.client.ClientRepository;
 import uz.gidrogo.modules.finance.dto.FinanceDtos.*;
 import uz.gidrogo.modules.order.OrderRepository;
 import uz.gidrogo.modules.order.OrderService;
+import uz.gidrogo.modules.order.OrderStatsService;
+import uz.gidrogo.common.TashkentTime;
+import java.time.LocalDate;
 import uz.gidrogo.modules.order.OrderStatus;
 import uz.gidrogo.modules.order.dto.OrderDtos.OrderResponse;
 import uz.gidrogo.modules.stock.StockService;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Service
@@ -31,6 +33,8 @@ public class FinanceService {
     private final UserRepository userRepository;
     private final StockService stockService;
     private final OrderService orderService;
+    private final RevenueService revenueService;
+    private final OrderStatsService orderStatsService;
 
     @Transactional
     public void recordIncome(Long farmId, BigDecimal amount, Long orderId, Long courierId, String note) {
@@ -67,40 +71,46 @@ public class FinanceService {
         return mapToResponse(tx);
     }
 
+    /**
+     * BE-01: tushum yagona {@link RevenueService} dan — faqat COMPLETED, completed_at bo'yicha (Asia/Tashkent).
+     * totalIncome — suv/mahsulot tushumi, taraIncome — tara (alohida qator), netProfit = totalIncome − totalExpense.
+     * Davrlar: today (bugun), week (oxirgi 7 kun), month (oxirgi 30 kun), year (oxirgi 365 kun), all.
+     */
     public FinanceSummaryResponse getSummary(Long farmId, String period) {
-        Instant since = switch (period != null ? period.toLowerCase() : "all") {
-            case "today" -> Instant.now().truncatedTo(ChronoUnit.DAYS);
-            case "week" -> Instant.now().minus(7, ChronoUnit.DAYS);
-            case "month" -> Instant.now().minus(30, ChronoUnit.DAYS);
-            case "year" -> Instant.now().minus(365, ChronoUnit.DAYS);
+        String p = period != null ? period.toLowerCase() : "all";
+        LocalDate today = TashkentTime.today();
+        Instant since = switch (p) {
+            case "today" -> TashkentTime.startOf(today);
+            case "week" -> TashkentTime.startOf(today.minusDays(6));
+            case "month" -> TashkentTime.startOf(today.minusDays(29));
+            case "year" -> TashkentTime.startOf(today.minusDays(364));
             default -> Instant.EPOCH;
         };
+        Instant until = TashkentTime.endExclusive(today);
 
-        BigDecimal income = financeRepository.sumByFarmIdAndTypeSince(farmId, "INCOME", since);
-        BigDecimal expense = financeRepository.sumByFarmIdAndTypeSince(farmId, "EXPENSE", since);
-        BigDecimal netProfit = income.subtract(expense);
+        RevenueService.Totals totals = revenueService.totals(farmId, since, until);
+        BigDecimal expense = revenueService.expenses(farmId, since, until);
 
         return FinanceSummaryResponse.builder()
                 .farmId(farmId)
-                .totalIncome(income)
+                .totalIncome(totals.revenue())
+                .taraIncome(totals.taraRevenue())
                 .totalExpense(expense)
-                .netProfit(netProfit)
+                .netProfit(revenueService.profit(totals, expense))
+                .completedOrders(totals.completedOrders())
                 .period(period != null ? period : "all")
                 .build();
     }
 
     public DashboardResponse getDashboard(Long farmId) {
-        Instant todayStart = Instant.now().truncatedTo(ChronoUnit.DAYS);
+        LocalDate today = TashkentTime.today();
+        Instant todayStart = TashkentTime.startOf(today);
         FinanceSummaryResponse todayFinance = getSummary(farmId, "today");
         FinanceSummaryResponse monthFinance = getSummary(farmId, "month");
 
         long totalOrders = orderRepository.countByFarmId(farmId);
         long todayOrders = orderRepository.countByFarmIdSince(farmId, todayStart);
-        List<OrderStatus> activeStatuses = List.of(
-                OrderStatus.NEW, OrderStatus.SEARCHING, OrderStatus.ASSIGNED,
-                OrderStatus.PREPARING, OrderStatus.ON_THE_WAY, OrderStatus.NEARBY
-        );
-        long activeOrders = orderRepository.countByFarmIdAndStatusIn(farmId, activeStatuses);
+        long activeOrders = orderRepository.countByFarmIdAndStatusIn(farmId, OrderStatsService.ACTIVE_STATUSES);
         long deliveredToday = orderRepository.countCompletedByFarmSince(farmId, todayStart);
         BigDecimal bottlesSoldToday = orderRepository.sumDeliveredBottlesByFarmSince(farmId, todayStart);
 
@@ -109,6 +119,17 @@ public class FinanceService {
                 .filter(u -> "ACTIVE".equalsIgnoreCase(u.getStatus()))
                 .count();
         long totalClients = clientRepository.countByFarmId(farmId);
+
+        // O'zgarish %: oxirgi 30 kun vs oldingi 30 kun (oldingi 0 bo'lsa null) — o'ylab topilgan raqam yo'q
+        Instant curStart = TashkentTime.startOf(today.minusDays(29));
+        Instant curEnd = TashkentTime.endExclusive(today);
+        Instant prevStart = TashkentTime.startOf(today.minusDays(59));
+        RevenueService.Totals revCur = revenueService.totals(farmId, curStart, curEnd);
+        RevenueService.Totals revPrev = revenueService.totals(farmId, prevStart, curStart);
+        long ordersCur = orderStatsService.countByStatus(farmId, curStart, curEnd).total();
+        long ordersPrev = orderStatsService.countByStatus(farmId, prevStart, curStart).total();
+        long clientsCur = clientRepository.countByFarmIdAndCreatedAtBetween(farmId, curStart, curEnd);
+        long clientsPrev = clientRepository.countByFarmIdAndCreatedAtBetween(farmId, prevStart, curStart);
 
         List<OrderResponse> recentOrders = orderService.getManagerOrders(null).stream()
                 .limit(5)
@@ -129,9 +150,9 @@ public class FinanceService {
                 .warehouseBottles(warehouseBottles != null ? warehouseBottles : BigDecimal.ZERO)
                 .activeCouriers(activeCouriers)
                 .totalClients(totalClients)
-                .incomeChangePercent(14.5)
-                .ordersChangePercent(8.2)
-                .clientsChangePercent(5.1)
+                .incomeChangePercent(TashkentTime.growthPercent(revCur.revenue(), revPrev.revenue()))
+                .ordersChangePercent(TashkentTime.growthPercent(ordersCur, ordersPrev))
+                .clientsChangePercent(TashkentTime.growthPercent(clientsCur, clientsPrev))
                 .recentOrders(recentOrders)
                 .build();
     }

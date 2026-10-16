@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.List;
 
 @Data
 @Builder
@@ -15,10 +16,22 @@ import java.time.Instant;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ApiResponse<T> {
     private boolean success;
+    /** Mashina o'qiydigan xato kodi (masalan FARM_BLOCKED). Faqat xato javoblarida. */
+    private String code;
     private String message;
     private T data;
+    /** Maydon darajasidagi xatolar. Faqat validatsiya xatolarida. */
+    private List<FieldErrorItem> fieldErrors;
     @Builder.Default
     private Instant timestamp = Instant.now();
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FieldErrorItem {
+        private String field;
+        private String message;
+    }
 
     public static <T> ApiResponse<T> ok(T data) {
         return ApiResponse.<T>builder()
@@ -40,6 +53,15 @@ public class ApiResponse<T> {
         return ApiResponse.<T>builder()
                 .success(false)
                 .message(message)
+                .build();
+    }
+
+    public static <T> ApiResponse<T> error(String code, String message, List<FieldErrorItem> fieldErrors) {
+        return ApiResponse.<T>builder()
+                .success(false)
+                .code(code)
+                .message(message)
+                .fieldErrors(fieldErrors == null || fieldErrors.isEmpty() ? null : fieldErrors)
                 .build();
     }
 }

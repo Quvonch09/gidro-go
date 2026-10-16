@@ -57,14 +57,16 @@ spring:
       port: 6379
       timeout: 2000ms
 
+# DIQQAT: sirlarni muhit o'zgaruvchilari orqali bering (JWT_SECRET, TELEGRAM_BOT_TOKEN).
+# Quyidagi standart qiymatlar repoga tushib qolgan — prod'da almashtirilishi (rotate) shart.
 jwt:
-  secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+  secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
   access-token-expiration-ms: 86400000      # 15 daqiqa
   refresh-token-expiration-ms: 2592000000 # 30 kun
 
 telegram:
   bot:
-    token: "8612254072:AAGe_T4kzilZlTVUyUFWpoBEpvGEe7lUQ_g"
+    token: ${TELEGRAM_BOT_TOKEN:8612254072:AAGe_T4kzilZlTVUyUFWpoBEpvGEe7lUQ_g}
     bot-username: "GidroGobot"
     mock-mode: false   # Agar true bo'lsa yoki token bo'sh bo'lsa, konsolga va javobga log qilinadi
 
@@ -74,4 +76,9 @@ app:
     nearby-distance-meters: 500.0
   upload:
     dir: ${APP_UPLOAD_DIR:/opt/gidrogo/uploads}
-    base-url: http://169.58.215.170:8080
+  security:
+    # true faqat Nginx (reverse proxy) ortida: X-Forwarded-For ishonchli bo'ladi (BE-20)
+    trust-forwarded-headers: ${TRUST_FORWARDED_HEADERS:false}
+    login:
+      max-failures: 5
+      window-minutes: 15

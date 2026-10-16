@@ -21,6 +21,9 @@ public class CourierOfferDtos {
         private Instant expiresAt;
         private Long ttlSeconds;
         private Integer distanceMeters;
+        private String distanceBasis; // CURRENT_LOCATION, ANCHOR_ORDER
+        private Long anchorOrderId;
+        private Integer etaSeconds;
         private OrderBriefDto order;
     }
 

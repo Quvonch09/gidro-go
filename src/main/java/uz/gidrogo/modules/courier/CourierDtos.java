@@ -47,6 +47,7 @@ public class CourierDtos {
         private String photoUrl;
 
         private Integer emptyBottlesReturned; // Qaytarilgan bo'sh shishalar soni
+        private List<EmptyBottleItem> emptyBottles; // Qaytarilgan bo'sh idishlar toifalari
         private String clientNote;            // Mijozdan olgan izoh
     }
 
@@ -300,5 +301,45 @@ public class CourierDtos {
         private long activeOrdersCount;
         private BigDecimal todayDeliveredBottles;
         private String avatarUrl;
+        private WorkloadDto workload;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class WorkloadDto {
+        private long active;
+        private int max;
+        private String state; // FREE, BUSY
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class EmptyBottleItem {
+        private Long productId;
+        private Integer qty;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CourierStockResponse {
+        private List<CourierStockItem> items;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CourierStockItem {
+        private Long productId;
+        private String productName;
+        private Double volumeLiters;
+        private BigDecimal quantity;
+        private BigDecimal reserved;
+        private BigDecimal available;
     }
 }

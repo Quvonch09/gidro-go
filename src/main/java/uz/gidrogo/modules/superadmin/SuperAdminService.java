@@ -1,381 +1,534 @@
 package uz.gidrogo.modules.superadmin;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Subquery;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uz.gidrogo.common.BadRequestException;
-import uz.gidrogo.common.ResourceNotFoundException;
+import uz.gidrogo.common.ApiException;
+import uz.gidrogo.common.FileUrls;
+import uz.gidrogo.common.Granularity;
+import uz.gidrogo.common.PageResponse;
+import uz.gidrogo.common.PasswordPolicy;
+import uz.gidrogo.common.SecurityUtils;
+import uz.gidrogo.common.TashkentTime;
+import uz.gidrogo.modules.auth.OtpService;
+import uz.gidrogo.modules.auth.RefreshTokenService;
 import uz.gidrogo.modules.auth.Role;
 import uz.gidrogo.modules.auth.User;
 import uz.gidrogo.modules.auth.UserRepository;
-import uz.gidrogo.modules.client.ClientRepository;
+import uz.gidrogo.modules.farm.BossActivationStatus;
 import uz.gidrogo.modules.farm.Farm;
 import uz.gidrogo.modules.farm.FarmRepository;
 import uz.gidrogo.modules.farm.FarmStatus;
-import uz.gidrogo.modules.order.OrderRepository;
+import uz.gidrogo.modules.finance.RevenueService;
+import uz.gidrogo.modules.order.OrderStatsService;
+import uz.gidrogo.modules.order.OrderStatus;
 import uz.gidrogo.modules.superadmin.dto.SuperAdminDtos.*;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.sql.Timestamp;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class SuperAdminService {
 
+    private static final Set<String> BOSS_SORT_FIELDS = Set.of("createdAt", "fullName", "id");
+    private static final Set<String> AUDIT_SORT_FIELDS = Set.of("createdAt", "action", "id");
+    private static final String UNKNOWN_REGION = "Belgilanmagan";
+
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
-    private final ClientRepository clientRepository;
-    private final OrderRepository orderRepository;
     private final SuperAdminAuditLogRepository auditLogRepository;
+    private final AuditService auditService;
     private final PasswordEncoder passwordEncoder;
+    private final RefreshTokenService refreshTokenService;
+    private final OrderStatsService orderStatsService;
+    private final RevenueService revenueService;
+    private final NamedParameterJdbcTemplate jdbc;
+    private final ObjectMapper objectMapper;
 
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class GlobalOperationsDashboard {
-        private long totalFarms;
-        private long activeFarms;
-        private long blockedFarms;
-        private long totalCouriers;
-        private long totalClients;
-        private long totalOrders;
-    }
+    // ==========================================
+    // 0. DASHBOARD (BE-10, TZ §5)
+    // ==========================================
 
-    public GlobalOperationsDashboard getOperationalDashboard() {
-        long totalFarms = farmRepository.count();
-        long activeFarms = farmRepository.findAllByStatus(FarmStatus.ACTIVE).size();
-        long blockedFarms = farmRepository.findAllByStatus(FarmStatus.BLOCKED).size();
-        long totalCouriers = userRepository.findAll().stream().filter(u -> u.getRole() == Role.COURIER).count();
-        long totalClients = clientRepository.count();
-        long totalOrders = orderRepository.count();
+    /**
+     * Umumiy KPI (butun davr) + tanlangan davr (standart: oxirgi 30 kun) va oldingi teng davrga nisbatan o'sish.
+     * Global tushum yo'q (TZ §5.5).
+     */
+    public DashboardResponse getDashboard(LocalDate from, LocalDate to) {
+        LocalDate end = to != null ? to : TashkentTime.today();
+        LocalDate start = from != null ? from : end.minusDays(29);
+        Granularity.validateRange(start, end, 3 * 366);
+        long length = ChronoUnit.DAYS.between(start, end) + 1;
+        LocalDate prevEnd = start.minusDays(1);
+        LocalDate prevStart = prevEnd.minusDays(length - 1);
 
-        return GlobalOperationsDashboard.builder()
-                .totalFarms(totalFarms)
-                .activeFarms(activeFarms)
-                .blockedFarms(blockedFarms)
-                .totalCouriers(totalCouriers)
-                .totalClients(totalClients)
-                .totalOrders(totalOrders)
+        Instant curFrom = TashkentTime.startOf(start);
+        Instant curTo = TashkentTime.endExclusive(end);
+        Instant prevFrom = TashkentTime.startOf(prevStart);
+
+        OrderStatsService.StatusCounts orders = orderStatsService.countByStatus(null, null, null);
+
+        long newClients = countUsersCreated(Role.CLIENT, curFrom, curTo);
+        long newClientsPrev = countUsersCreated(Role.CLIENT, prevFrom, curFrom);
+        long periodOrders = orderStatsService.countByStatus(null, curFrom, curTo).total();
+        long periodOrdersPrev = orderStatsService.countByStatus(null, prevFrom, curFrom).total();
+        long newFarms = countFarmsCreated(curFrom, curTo);
+        long newFarmsPrev = countFarmsCreated(prevFrom, curFrom);
+
+        return DashboardResponse.builder()
+                .totalFarms(farmRepository.count())
+                .activeFarms(farmRepository.countByStatus(FarmStatus.ACTIVE))
+                .blockedFarms(farmRepository.countByStatus(FarmStatus.BLOCKED))
+                .inactiveFarms(farmRepository.countByStatus(FarmStatus.INACTIVE))
+                .totalCouriers(countUsers(Role.COURIER))
+                .totalClients(countUsers(Role.CLIENT))
+                .totalOrders(orders.total())
+                .activeOrders(orders.active())
+                .completedOrders(orders.completed())
+                .cancelledOrders(orders.cancelled())
+                .returnedOrders(orders.returned())
+                .period(PeriodStats.builder()
+                        .from(start.toString())
+                        .to(end.toString())
+                        .previousFrom(prevStart.toString())
+                        .previousTo(prevEnd.toString())
+                        .newClients(newClients)
+                        .activeClients(countActiveClients(curFrom, curTo))
+                        .orders(periodOrders)
+                        .newFarms(newFarms)
+                        .build())
+                .growth(Growth.builder()
+                        .clientsPercent(TashkentTime.growthPercent(newClients, newClientsPrev))
+                        .ordersPercent(TashkentTime.growthPercent(periodOrders, periodOrdersPrev))
+                        .farmsPercent(TashkentTime.growthPercent(newFarms, newFarmsPrev))
+                        .build())
                 .build();
     }
 
-    // ==========================================
-    // 1. HUDUDIY TAQSIMOT (REGIONAL DISTRIBUTION)
-    // ==========================================
-    public RegionalDistributionResponse getRegionalDistribution() {
-        List<Farm> allFarms = farmRepository.findAll();
+    /** GET /statistics/growth — TZ §5.3 grafiklari va §11 oylik dinamika. */
+    public List<GrowthPoint> getGrowthSeries(LocalDate from, LocalDate to, Granularity granularity) {
+        LocalDate end = to != null ? to : TashkentTime.today();
+        Granularity g = granularity != null ? granularity : Granularity.MONTH;
+        LocalDate start = from != null ? from : switch (g) {
+            case DAY -> end.minusDays(29);
+            case WEEK -> end.minusWeeks(11);
+            case MONTH -> end.minusMonths(11).withDayOfMonth(1);
+        };
+        Granularity.validateRange(start, end, g == Granularity.DAY ? 366 : 3 * 366);
 
-        long toshkentCount = 0;
-        long samarqandCount = 0;
-        long fargonaCount = 0;
-        long boshqaCount = 0;
+        Instant fromI = TashkentTime.startOf(start);
+        Instant toI = TashkentTime.endExclusive(end);
+        String unit = g.name().toLowerCase(Locale.ROOT);
+        MapSqlParameterSource p = new MapSqlParameterSource()
+                .addValue("from", Timestamp.from(fromI))
+                .addValue("to", Timestamp.from(toI));
 
-        for (Farm farm : allFarms) {
-            String addr = (farm.getAddress() != null ? farm.getAddress().toLowerCase() : "") + " " +
-                          (farm.getName() != null ? farm.getName().toLowerCase() : "");
+        Map<LocalDate, Long> clients = bucketCounts("SELECT " + bucket(unit, "created_at") + " AS b, COUNT(*) AS c FROM users "
+                + "WHERE role = 'CLIENT' AND created_at >= :from AND created_at < :to GROUP BY b", p);
+        Map<LocalDate, Long> active = bucketCounts("SELECT " + bucket(unit, "created_at") + " AS b, COUNT(DISTINCT client_id) AS c FROM orders "
+                + "WHERE created_at >= :from AND created_at < :to GROUP BY b", p);
+        Map<LocalDate, Long> orders = bucketCounts("SELECT " + bucket(unit, "created_at") + " AS b, COUNT(*) AS c FROM orders "
+                + "WHERE created_at >= :from AND created_at < :to GROUP BY b", p);
+        Map<LocalDate, Long> farms = bucketCounts("SELECT " + bucket(unit, "created_at") + " AS b, COUNT(*) AS c FROM farms "
+                + "WHERE created_at >= :from AND created_at < :to GROUP BY b", p);
 
-            if (addr.contains("toshkent") || addr.contains("chilonzor") || addr.contains("yunusobod") ||
-                addr.contains("sergeli") || addr.contains("mirzo") || addr.contains("uchtepa") || addr.contains("yakkasaroy")) {
-                toshkentCount++;
-            } else if (addr.contains("samarqand") || addr.contains("qashqadaryo") || addr.contains("qarshi") || addr.contains("shaxrisabz")) {
-                samarqandCount++;
-            } else if (addr.contains("farg'ona") || addr.contains("fargona") || addr.contains("andijon") || addr.contains("namangan") || addr.contains("vodiy")) {
-                fargonaCount++;
-            } else {
-                boshqaCount++;
-            }
+        List<GrowthPoint> series = new ArrayList<>();
+        for (LocalDate b = g.bucketStart(start); !b.isAfter(end); b = g.next(b)) {
+            LocalDate pStart = b.isBefore(start) ? start : b;
+            LocalDate pEnd = g.next(b).minusDays(1).isAfter(end) ? end : g.next(b).minusDays(1);
+            series.add(GrowthPoint.builder()
+                    .periodStart(pStart.toString())
+                    .periodEnd(pEnd.toString())
+                    .newClients(clients.getOrDefault(b, 0L))
+                    .activeClients(active.getOrDefault(b, 0L))
+                    .orders(orders.getOrDefault(b, 0L))
+                    .newFarms(farms.getOrDefault(b, 0L))
+                    .build());
         }
+        return series;
+    }
 
-        long total = allFarms.size();
-        // Agar yangi baza bo'lsa (kam fermalar), Figma skrinshotidagi standart ko'rsatkichlarni beramiz
-        if (total < 5) {
-            toshkentCount += 18;
-            samarqandCount += 16;
-            fargonaCount += 10;
-            boshqaCount += 4;
-            total = toshkentCount + samarqandCount + fargonaCount + boshqaCount;
-        }
+    // ==========================================
+    // 1. STATISTIKA (BE-15, TZ §11)
+    // ==========================================
 
-        double toshkentPct = Math.round((toshkentCount * 1000.0) / total) / 10.0;
-        double samarqandPct = Math.round((samarqandCount * 1000.0) / total) / 10.0;
-        double fargonaPct = Math.round((fargonaCount * 1000.0) / total) / 10.0;
-        double boshqaPct = Math.round((boshqaCount * 1000.0) / total) / 10.0;
+    /** Hudud (farms.city) bo'yicha fermalar holati va davrdagi buyurtmalar. O'ylab topilgan qiymat yo'q. */
+    public RegionalDistributionResponse getRegionalDistribution(LocalDate from, LocalDate to, String region) {
+        LocalDate end = to != null ? to : TashkentTime.today();
+        LocalDate start = from != null ? from : end.minusDays(29);
+        Granularity.validateRange(start, end, 3 * 366);
+        long length = ChronoUnit.DAYS.between(start, end) + 1;
+        Instant curFrom = TashkentTime.startOf(start);
+        Instant curTo = TashkentTime.endExclusive(end);
+        Instant prevFrom = TashkentTime.startOf(start.minusDays(length));
 
-        List<RegionItem> regions = List.of(
-                RegionItem.builder()
-                        .regionName("Toshkent viloyati")
-                        .name("Toshkent viloyati")
-                        .count(toshkentCount)
-                        .value(toshkentCount)
-                        .percentage(toshkentPct)
-                        .formattedText(toshkentCount + " ta (" + String.format(Locale.US, "%.1f", toshkentPct) + "%)")
-                        .color("#1E40AF")
-                        .build(),
-                RegionItem.builder()
-                        .regionName("Samarqand & Qashqadaryo")
-                        .name("Samarqand & Qashqadaryo")
-                        .count(samarqandCount)
-                        .value(samarqandCount)
-                        .percentage(samarqandPct)
-                        .formattedText(samarqandCount + " ta (" + String.format(Locale.US, "%.1f", samarqandPct) + "%)")
-                        .color("#0E7490")
-                        .build(),
-                RegionItem.builder()
-                        .regionName("Farg'ona vodiysi")
-                        .name("Farg'ona vodiysi")
-                        .count(fargonaCount)
-                        .value(fargonaCount)
-                        .percentage(fargonaPct)
-                        .formattedText(fargonaCount + " ta (" + String.format(Locale.US, "%.1f", fargonaPct) + "%)")
-                        .color("#2563EB")
-                        .build(),
-                RegionItem.builder()
-                        .regionName("Boshqa viloyatlar")
-                        .name("Boshqa viloyatlar")
-                        .count(boshqaCount)
-                        .value(boshqaCount)
-                        .percentage(boshqaPct)
-                        .formattedText(boshqaCount + " ta (" + String.format(Locale.US, "%.1f", boshqaPct) + "%)")
-                        .color("#64748B")
-                        .build()
-        );
+        String regionExpr = "COALESCE(NULLIF(TRIM(f.city), ''), '" + UNKNOWN_REGION + "')";
+        Map<String, long[]> farmCounts = new LinkedHashMap<>(); // [total, active, blocked, inactive]
+        jdbc.query("SELECT " + regionExpr + " AS region, f.status AS status, COUNT(*) AS c FROM farms f GROUP BY region, f.status",
+                new MapSqlParameterSource(), rs -> {
+                    long[] arr = farmCounts.computeIfAbsent(rs.getString("region"), k -> new long[4]);
+                    long c = rs.getLong("c");
+                    arr[0] += c;
+                    switch (rs.getString("status")) {
+                        case "ACTIVE" -> arr[1] += c;
+                        case "BLOCKED" -> arr[2] += c;
+                        case "INACTIVE" -> arr[3] += c;
+                        default -> { }
+                    }
+                });
+
+        MapSqlParameterSource p = new MapSqlParameterSource()
+                .addValue("curFrom", Timestamp.from(curFrom))
+                .addValue("curTo", Timestamp.from(curTo))
+                .addValue("prevFrom", Timestamp.from(prevFrom));
+        Map<String, long[]> orderCounts = new HashMap<>(); // [current, previous]
+        jdbc.query("SELECT " + regionExpr + " AS region, "
+                        + "COUNT(*) FILTER (WHERE o.created_at >= :curFrom AND o.created_at < :curTo) AS cur, "
+                        + "COUNT(*) FILTER (WHERE o.created_at >= :prevFrom AND o.created_at < :curFrom) AS prev "
+                        + "FROM orders o JOIN farms f ON f.id = o.farm_id "
+                        + "WHERE o.created_at >= :prevFrom AND o.created_at < :curTo GROUP BY region",
+                p, rs -> {
+                    orderCounts.put(rs.getString("region"), new long[]{rs.getLong("cur"), rs.getLong("prev")});
+                });
+
+        long allFarms = farmCounts.values().stream().mapToLong(a -> a[0]).sum();
+        List<RegionItem> regions = farmCounts.entrySet().stream()
+                .filter(e -> region == null || region.isBlank() || e.getKey().equalsIgnoreCase(region.trim()))
+                .map(e -> {
+                    long[] fc = e.getValue();
+                    long[] oc = orderCounts.getOrDefault(e.getKey(), new long[2]);
+                    double pct = allFarms == 0 ? 0.0
+                            : BigDecimal.valueOf(fc[0] * 100.0 / allFarms).setScale(1, RoundingMode.HALF_UP).doubleValue();
+                    return RegionItem.builder()
+                            .regionName(e.getKey())
+                            .totalFarms(fc[0])
+                            .activeFarms(fc[1])
+                            .blockedFarms(fc[2])
+                            .inactiveFarms(fc[3])
+                            .percentage(pct)
+                            .ordersInPeriod(oc[0])
+                            .ordersPreviousPeriod(oc[1])
+                            .growthPercent(TashkentTime.growthPercent(oc[0], oc[1]))
+                            .build();
+                })
+                .sorted(Comparator.comparingLong(RegionItem::getTotalFarms).reversed().thenComparing(RegionItem::getRegionName))
+                .toList();
 
         return RegionalDistributionResponse.builder()
-                .title("Hududiy Taqsimot")
-                .description("Rahbarlarga biriktirilgan suv fermalari viloyatlar kesimida")
-                .totalFarms(total)
+                .from(start.toString())
+                .to(end.toString())
+                .totalFarms(allFarms)
                 .regions(regions)
                 .build();
     }
 
-    // ==========================================
-    // 2. FERMA EGALARI (BOSSES / FARM OWNERS)
-    // ==========================================
-    public BossListResponse getBosses(String search, String status, Long farmId) {
-        List<User> bossUsers = userRepository.findAllByRoleOrderByCreatedAtDesc(Role.BOSS);
-
-        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy").withZone(ZoneId.systemDefault());
-
-        List<BossItemResponse> list = new ArrayList<>();
-        for (User boss : bossUsers) {
-            if ("DELETED".equalsIgnoreCase(boss.getStatus())) continue;
-
-            Farm farm = boss.getFarmId() != null ? farmRepository.findById(boss.getFarmId()).orElse(null) : null;
-
-            String farmName = farm != null ? farm.getName() : "Biriktirilmagan";
-            String farmCode = farm != null ? String.format("farm-%03d", farm.getId()) : "-";
-            boolean isActive = "ACTIVE".equalsIgnoreCase(boss.getStatus());
-            String statusLabel = isActive ? "Faol" : "Bloklangan";
-
-            String formattedDate = boss.getCreatedAt() != null ? dateFormatter.format(boss.getCreatedAt()) : "12.08.2026";
-            String avatarUrl = "https://ui-avatars.com/api/?name=" + (boss.getFullName() != null ? boss.getFullName().replace(" ", "+") : "Boss") + "&background=0D8ABC&color=fff&rounded=true";
-
-            list.add(BossItemResponse.builder()
-                    .id(boss.getId())
-                    .fullName(boss.getFullName())
-                    .phone(boss.getPhone())
-                    .avatarUrl(avatarUrl)
-                    .farmId(boss.getFarmId())
-                    .farmCode(farmCode)
-                    .farmName(farmName)
-                    .status(boss.getStatus())
-                    .active(isActive)
-                    .statusLabel(statusLabel)
-                    .createdAt(boss.getCreatedAt())
-                    .formattedCreatedAt(formattedDate)
-                    .build());
-        }
-
-        // Agar test muhitida ro'yxat kam bo'lsa (masalan < 2 ta), skrinshotdagi prototip namunalarini qo'shamiz
-        if (list.size() < 2) {
-            list.add(BossItemResponse.builder()
-                    .id(101L)
-                    .fullName("Aliyev Bobur Mansurovich")
-                    .phone("+998 90 123 45 67")
-                    .avatarUrl("https://ui-avatars.com/api/?name=Aliyev+Bobur&background=0D8ABC&color=fff&rounded=true")
-                    .farmId(1L)
-                    .farmCode("farm-001")
-                    .farmName("Oazis Gidroponika Majmuasi")
-                    .status("ACTIVE")
-                    .active(true)
-                    .statusLabel("Faol")
-                    .createdAt(Instant.now().minusSeconds(86400 * 35))
-                    .formattedCreatedAt("12.08.2026")
-                    .build());
-
-            list.add(BossItemResponse.builder()
-                    .id(102L)
-                    .fullName("Karimov Sardor Anvarovich")
-                    .phone("+998 91 234 56 78")
-                    .avatarUrl("https://ui-avatars.com/api/?name=Karimov+Sardor&background=10B981&color=fff&rounded=true")
-                    .farmId(2L)
-                    .farmCode("farm-002")
-                    .farmName("Green Agro Farm")
-                    .status("ACTIVE")
-                    .active(true)
-                    .statusLabel("Faol")
-                    .createdAt(Instant.now().minusSeconds(86400 * 14))
-                    .formattedCreatedAt("03.09.2026")
-                    .build());
-        }
-
-        // Search va filter
-        List<BossItemResponse> filtered = list.stream().filter(b -> {
-            if (search != null && !search.isBlank()) {
-                String s = search.toLowerCase().trim();
-                boolean matches = (b.getFullName() != null && b.getFullName().toLowerCase().contains(s)) ||
-                                  (b.getPhone() != null && b.getPhone().contains(s)) ||
-                                  (b.getFarmName() != null && b.getFarmName().toLowerCase().contains(s)) ||
-                                  (b.getFarmCode() != null && b.getFarmCode().toLowerCase().contains(s));
-                if (!matches) return false;
-            }
-            if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status) && !"BARCHA".equalsIgnoreCase(status)) {
-                if ("ACTIVE".equalsIgnoreCase(status) || "FAOL".equalsIgnoreCase(status)) {
-                    if (!b.isActive()) return false;
-                } else if ("BLOCKED".equalsIgnoreCase(status) || "BLOKLANGAN".equalsIgnoreCase(status)) {
-                    if (b.isActive()) return false;
-                }
-            }
-            if (farmId != null) {
-                if (!farmId.equals(b.getFarmId())) return false;
-            }
-            return true;
-        }).toList();
-
-        long totalBosses = Math.max(list.size(), 48);
-        long activeBosses = Math.max(list.stream().filter(BossItemResponse::isActive).count(), 44);
-        long blockedBosses = Math.max(list.stream().filter(b -> !b.isActive()).count(), 4);
-        long recentlyApproved = 5;
-
-        BossSummaryCards summary = BossSummaryCards.builder()
-                .totalBosses(totalBosses)
-                .activeBosses(activeBosses)
-                .recentlyApproved(recentlyApproved)
-                .blockedBosses(blockedBosses)
-                .jamiBosslarText(totalBosses + " nafar")
-                .faolHisoblarText(activeBosses + " nafar")
-                .yangiTasdiqlanganText(recentlyApproved + " nafar")
-                .bloklanganText(blockedBosses + " nafar")
+    /** GET /statistics/orders-by-status (TZ §11.2). Har bir holat (0 bo'lsa ham) ro'yxatda. */
+    public OrdersByStatusResponse getOrdersByStatus(LocalDate from, LocalDate to, Long farmId) {
+        LocalDate end = to != null ? to : TashkentTime.today();
+        LocalDate start = from != null ? from : end.minusDays(29);
+        Granularity.validateRange(start, end, 3 * 366);
+        OrderStatsService.StatusCounts counts = orderStatsService.countByStatus(
+                farmId, TashkentTime.startOf(start), TashkentTime.endExclusive(end));
+        List<StatusCount> list = Arrays.stream(OrderStatus.values())
+                .map(s -> StatusCount.builder().status(s.name()).count(counts.get(s)).build())
+                .toList();
+        return OrdersByStatusResponse.builder()
+                .from(start.toString())
+                .to(end.toString())
+                .farmId(farmId)
+                .total(counts.total())
+                .statuses(list)
                 .build();
+    }
+
+    // ==========================================
+    // 2. FERMA EGALARI (BE-03, BE-16, BE-22)
+    // ==========================================
+
+    /**
+     * Bosslar ro'yxati. Boss–ferma bog'lanishi faqat farms.boss_user_id dan olinadi.
+     * summary — ro'yxat bilan bir xil manba va filtrdan (sahifalashdan oldin): summary.total = totalElements.
+     */
+    public BossListResponse getBosses(String search, String status, Long farmId, BossActivationStatus activationStatus,
+                                      int page, int size, String sort) {
+        Pageable pageable = PageResponse.pageable(page, size, sort, BOSS_SORT_FIELDS, Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Map<Long, Farm> farmByBoss = farmRepository.findAll().stream()
+                .filter(f -> f.getBossUserId() != null)
+                .collect(Collectors.toMap(Farm::getBossUserId, Function.identity()));
+
+        String s = search != null && !search.isBlank() ? search.trim().toLowerCase(Locale.ROOT) : null;
+        String sDigits = search != null ? search.replaceAll("[^0-9]", "") : "";
+        String statusFilter = normalizeStatusFilter(status);
+
+        List<User> filtered = userRepository.findAllByRoleOrderByCreatedAtDesc(Role.BOSS).stream()
+                .filter(u -> !"DELETED".equalsIgnoreCase(u.getStatus()))
+                .filter(u -> {
+                    Farm f = farmByBoss.get(u.getId());
+                    if (s != null) {
+                        boolean match = (u.getFullName() != null && u.getFullName().toLowerCase(Locale.ROOT).contains(s))
+                                || (sDigits.length() >= 3 && u.getPhone() != null && u.getPhone().replaceAll("[^0-9]", "").contains(sDigits))
+                                || (f != null && f.getName() != null && f.getName().toLowerCase(Locale.ROOT).contains(s))
+                                || (f != null && farmCode(f).contains(s));
+                        if (!match) return false;
+                    }
+                    if (statusFilter != null && !statusFilter.equalsIgnoreCase(u.getStatus())) return false;
+                    if (farmId != null && (f == null || !farmId.equals(f.getId()))) return false;
+                    if (activationStatus != null && activationStatus != effectiveActivation(u)) return false;
+                    return true;
+                })
+                .sorted(bossComparator(pageable.getSort()))
+                .toList();
+
+        Instant recentSince = Instant.now().minus(30, ChronoUnit.DAYS);
+        BossSummaryCards summary = BossSummaryCards.builder()
+                .total(filtered.size())
+                .active(filtered.stream().filter(u -> "ACTIVE".equalsIgnoreCase(u.getStatus())).count())
+                .blocked(filtered.stream().filter(u -> "BLOCKED".equalsIgnoreCase(u.getStatus())).count())
+                .recentlyAdded(filtered.stream().filter(u -> u.getCreatedAt() != null && u.getCreatedAt().isAfter(recentSince)).count())
+                .build();
+
+        PageResponse<BossItemResponse> p = PageResponse.ofList(
+                filtered.stream().map(u -> mapToBossItem(u, farmByBoss.get(u.getId()))).toList(),
+                pageable.getPageNumber(), pageable.getPageSize());
 
         return BossListResponse.builder()
                 .summary(summary)
-                .bosses(filtered)
-                .content(filtered)
-                .totalElements(filtered.size())
+                .content(p.getContent())
+                .page(p.getPage())
+                .size(p.getSize())
+                .totalElements(p.getTotalElements())
+                .totalPages(p.getTotalPages())
                 .build();
     }
 
+    /** Hisob holatini almashtirish (ACTIVE ↔ BLOCKED). Boss bloklansa fermasi ham BLOCKED; ochilsa — faqat BLOCKED bo'lgan ferma ACTIVE. */
     @Transactional
     public BossItemResponse toggleBossStatus(Long bossId) {
-        User boss = userRepository.findById(bossId)
-                .orElseThrow(() -> new ResourceNotFoundException("Rahbar topilmadi: ID=" + bossId));
+        User boss = findBoss(bossId);
+        Farm farm = farmRepository.findByBossUserId(boss.getId())
+                .flatMap(f -> farmRepository.findByIdForUpdate(f.getId()))
+                .orElse(null);
 
-        boolean currentlyActive = "ACTIVE".equalsIgnoreCase(boss.getStatus());
-        String newStatus = currentlyActive ? "BLOCKED" : "ACTIVE";
-        boss.setStatus(newStatus);
+        String oldStatus = boss.getStatus();
+        boolean currentlyActive = "ACTIVE".equalsIgnoreCase(oldStatus);
+        boss.setStatus(currentlyActive ? "BLOCKED" : "ACTIVE");
         userRepository.save(boss);
 
-        if (boss.getFarmId() != null) {
-            farmRepository.findById(boss.getFarmId()).ifPresent(f -> {
-                f.setStatus(currentlyActive ? FarmStatus.BLOCKED : FarmStatus.ACTIVE);
-                farmRepository.save(f);
-            });
+        FarmStatus oldFarmStatus = farm != null ? farm.getStatus() : null;
+        if (farm != null) {
+            if (currentlyActive) {
+                farm.setStatus(FarmStatus.BLOCKED);
+            } else if (farm.getStatus() == FarmStatus.BLOCKED) {
+                farm.setStatus(FarmStatus.ACTIVE);
+            }
+            farmRepository.save(farm);
+        }
+        if (currentlyActive) {
+            refreshTokenService.revokeAll(boss.getId());
         }
 
-        return mapToBossItem(boss);
+        Map<String, Object> oldV = new LinkedHashMap<>();
+        oldV.put("status", oldStatus);
+        oldV.put("farmStatus", oldFarmStatus);
+        Map<String, Object> newV = new LinkedHashMap<>();
+        newV.put("status", boss.getStatus());
+        newV.put("farmStatus", farm != null ? farm.getStatus() : null);
+        Map<String, Object> extra = new LinkedHashMap<>();
+        extra.put("farmId", farm != null ? farm.getId() : null);
+        auditService.record(AuditAction.BOSS_STATUS_CHANGED, "BOSS", boss.getId(), oldV, newV, extra);
+
+        return mapToBossItem(boss, farm);
     }
 
+    /**
+     * Boss ma'lumotlarini tahrirlash. farmId o'zgarsa: ferma qatori SELECT … FOR UPDATE bilan qulflanadi;
+     * ferma yo'q → 404 FARM_NOT_FOUND; fermada boshqa boss bor → 409 FARM_ALREADY_HAS_BOSS.
+     * Audit BOSS_UPDATED (old/new, parolsiz).
+     */
     @Transactional
     public BossItemResponse updateBoss(Long bossId, BossUpdateRequest request) {
-        User boss = userRepository.findById(bossId)
-                .orElseThrow(() -> new ResourceNotFoundException("Rahbar topilmadi: ID=" + bossId));
+        User boss = findBoss(bossId);
+        Farm currentFarm = farmRepository.findByBossUserId(boss.getId()).orElse(null);
+
+        Map<String, Object> oldV = bossSnapshot(boss, currentFarm);
+        boolean passwordChanged = false;
 
         if (request.getFullName() != null && !request.getFullName().isBlank()) {
-            boss.setFullName(request.getFullName());
+            boss.setFullName(request.getFullName().trim());
         }
         if (request.getPhone() != null && !request.getPhone().isBlank()) {
-            boss.setPhone(request.getPhone());
+            String phone = normalizePhoneOrFail(request.getPhone(), "phone");
+            if (!phone.equals(boss.getPhone())) {
+                userRepository.findByPhone(phone).filter(other -> !other.getId().equals(boss.getId())).ifPresent(other -> {
+                    throw ApiException.conflict("PHONE_ALREADY_EXISTS", "Bu telefon raqamli foydalanuvchi allaqachon mavjud");
+                });
+                boss.setPhone(phone);
+            }
         }
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            PasswordPolicy.validate(request.getPassword(), "password");
             boss.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+            passwordChanged = true;
         }
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
-            boss.setStatus(request.getStatus().toUpperCase());
+            boss.setStatus(request.getStatus().trim().toUpperCase(Locale.ROOT));
         }
-        if (request.getFarmId() != null) {
-            boss.setFarmId(request.getFarmId());
-            farmRepository.findById(request.getFarmId()).ifPresent(f -> {
-                f.setBossUserId(boss.getId());
-                farmRepository.save(f);
-            });
+        if (request.getAvatarUrl() != null) {
+            boss.setAvatarUrl(FileUrls.normalize(request.getAvatarUrl()));
         }
-        userRepository.save(boss);
 
-        return mapToBossItem(boss);
+        Farm targetFarm = currentFarm;
+        if (request.getFarmId() != null && (currentFarm == null || !request.getFarmId().equals(currentFarm.getId()))) {
+            targetFarm = farmRepository.findByIdForUpdate(request.getFarmId())
+                    .orElseThrow(() -> ApiException.notFound("FARM_NOT_FOUND", "Ferma topilmadi: ID=" + request.getFarmId()));
+            if (targetFarm.getBossUserId() != null && !targetFarm.getBossUserId().equals(boss.getId())) {
+                throw ApiException.conflict("FARM_ALREADY_HAS_BOSS", "Bu fermada boshqa boss bor");
+            }
+            if (currentFarm != null) {
+                Farm locked = farmRepository.findByIdForUpdate(currentFarm.getId()).orElse(currentFarm);
+                locked.setBossUserId(null);
+                farmRepository.saveAndFlush(locked);
+            }
+            targetFarm.setBossUserId(boss.getId());
+            farmRepository.saveAndFlush(targetFarm);
+            boss.setFarmId(targetFarm.getId()); // hosila nusxa
+        }
+
+        userRepository.save(boss);
+        if (passwordChanged || "BLOCKED".equalsIgnoreCase(boss.getStatus())) {
+            refreshTokenService.revokeAll(boss.getId());
+        }
+
+        Map<String, Object> newV = bossSnapshot(boss, targetFarm);
+        Map<String, Object> extra = new LinkedHashMap<>();
+        extra.put("passwordChanged", passwordChanged);
+        auditService.record(AuditAction.BOSS_UPDATED, "BOSS", boss.getId(), oldV, newV, extra);
+
+        return mapToBossItem(boss, targetFarm);
     }
 
+    /** Soft delete: hisob DELETED, ferma bog'lanishi uziladi, tokenlar bekor qilinadi. Audit BOSS_DELETED. */
     @Transactional
     public void deleteBoss(Long bossId) {
-        User boss = userRepository.findById(bossId)
-                .orElseThrow(() -> new ResourceNotFoundException("Rahbar topilmadi: ID=" + bossId));
+        User boss = findBoss(bossId);
+        Farm farm = farmRepository.findByBossUserId(boss.getId())
+                .flatMap(f -> farmRepository.findByIdForUpdate(f.getId()))
+                .orElse(null);
+        Map<String, Object> oldV = bossSnapshot(boss, farm);
 
-        if (boss.getFarmId() != null) {
-            farmRepository.findById(boss.getFarmId()).ifPresent(f -> {
-                f.setBossUserId(null);
-                farmRepository.save(f);
-            });
+        if (farm != null) {
+            farm.setBossUserId(null);
+            farmRepository.save(farm);
         }
         boss.setStatus("DELETED");
         userRepository.save(boss);
-    }
+        refreshTokenService.revokeAll(boss.getId());
 
-    private BossItemResponse mapToBossItem(User boss) {
-        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy").withZone(ZoneId.systemDefault());
-        Farm farm = boss.getFarmId() != null ? farmRepository.findById(boss.getFarmId()).orElse(null) : null;
-        boolean isActive = "ACTIVE".equalsIgnoreCase(boss.getStatus());
-
-        return BossItemResponse.builder()
-                .id(boss.getId())
-                .fullName(boss.getFullName())
-                .phone(boss.getPhone())
-                .avatarUrl("https://ui-avatars.com/api/?name=" + (boss.getFullName() != null ? boss.getFullName().replace(" ", "+") : "Boss") + "&background=0D8ABC&color=fff&rounded=true")
-                .farmId(boss.getFarmId())
-                .farmCode(farm != null ? String.format("farm-%03d", farm.getId()) : "-")
-                .farmName(farm != null ? farm.getName() : "-")
-                .status(boss.getStatus())
-                .active(isActive)
-                .statusLabel(isActive ? "Faol" : "Bloklangan")
-                .createdAt(boss.getCreatedAt())
-                .formattedCreatedAt(boss.getCreatedAt() != null ? dateFormatter.format(boss.getCreatedAt()) : "12.08.2026")
-                .build();
-    }
-
-    public List<SuperAdminAuditLog> getAuditLogs() {
-        return auditLogRepository.findAllByOrderByCreatedAtDesc();
+        Map<String, Object> newV = new LinkedHashMap<>();
+        newV.put("status", "DELETED");
+        newV.put("farmId", null);
+        auditService.record(AuditAction.BOSS_DELETED, "BOSS", boss.getId(), oldV, newV);
     }
 
     // ==========================================
-    // 3. SOZLAMALAR VA PROFIL (SETTINGS & PROFILE)
+    // 3. AUDIT LOG (BE-12)
     // ==========================================
+
+    public PageResponse<AuditLogItem> getAuditLogs(Collection<String> actions, String entityType, LocalDate from, LocalDate to,
+                                                   String search, int page, int size, String sort) {
+        Pageable pageable = PageResponse.pageable(page, size, sort, AUDIT_SORT_FIELDS, Sort.by(Sort.Direction.DESC, "createdAt"));
+        List<String> actionList = actions == null ? List.of() : actions.stream()
+                .filter(Objects::nonNull)
+                .flatMap(a -> Arrays.stream(a.split(",")))
+                .map(String::trim)
+                .filter(a -> !a.isEmpty())
+                .map(a -> a.toUpperCase(Locale.ROOT))
+                .toList();
+
+        Specification<SuperAdminAuditLog> spec = (root, q, cb) -> {
+            List<Predicate> ps = new ArrayList<>();
+            if (!actionList.isEmpty()) ps.add(root.get("action").in(actionList));
+            if (entityType != null && !entityType.isBlank()) {
+                ps.add(cb.equal(root.get("entityType"), entityType.trim().toUpperCase(Locale.ROOT)));
+            }
+            if (from != null) ps.add(cb.greaterThanOrEqualTo(root.get("createdAt"), TashkentTime.startOf(from)));
+            if (to != null) ps.add(cb.lessThan(root.get("createdAt"), TashkentTime.endExclusive(to)));
+            if (search != null && !search.isBlank()) {
+                String like = "%" + search.trim().toLowerCase(Locale.ROOT) + "%";
+                Subquery<Long> actors = q.subquery(Long.class);
+                var u = actors.from(User.class);
+                actors.select(u.get("id")).where(cb.like(cb.lower(u.get("fullName")), like));
+                List<Predicate> or = new ArrayList<>(List.of(
+                        cb.like(cb.lower(cb.coalesce(root.get("metadata"), "")), like),
+                        cb.like(cb.lower(root.get("action")), like),
+                        root.get("actorId").in(actors)));
+                if (search.trim().matches("\\d{1,18}")) {
+                    or.add(cb.equal(root.get("entityId"), Long.parseLong(search.trim())));
+                }
+                ps.add(cb.or(or.toArray(new Predicate[0])));
+            }
+            return cb.and(ps.toArray(new Predicate[0]));
+        };
+
+        Page<SuperAdminAuditLog> result = auditLogRepository.findAll(spec, pageable);
+        Set<Long> actorIds = result.getContent().stream().map(SuperAdminAuditLog::getActorId).collect(Collectors.toSet());
+        Map<Long, String> names = userRepository.findAllById(actorIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getFullName));
+        return PageResponse.of(result, log -> AuditLogItem.builder()
+                .id(log.getId())
+                .actorId(log.getActorId())
+                .actorName(names.get(log.getActorId()))
+                .action(log.getAction())
+                .entityType(log.getEntityType())
+                .entityId(log.getEntityId())
+                .metadata(parseMetadata(log.getMetadata()))
+                .ipAddress(log.getIpAddress())
+                .userAgent(log.getUserAgent())
+                .createdAt(log.getCreatedAt())
+                .build());
+    }
+
+    // ==========================================
+    // 4. SOZLAMALAR VA PROFIL (BE-21)
+    // ==========================================
+
     public SuperAdminProfileResponse getSuperAdminProfile() {
-        User user = getCurrentSuperAdminUser();
-        return mapToProfileResponse(user);
+        return mapToProfileResponse(getCurrentSuperAdminUser());
     }
 
     @Transactional
     public SuperAdminProfileResponse updateSuperAdminProfile(SuperAdminProfileUpdateRequest request) {
         User user = getCurrentSuperAdminUser();
+        Map<String, Object> oldV = profileSnapshot(user);
 
         if (request.getFirstName() != null || request.getLastName() != null) {
             String first = request.getFirstName() != null ? request.getFirstName().trim() : "";
@@ -389,77 +542,220 @@ public class SuperAdminService {
         }
 
         if (request.getPhone() != null && !request.getPhone().isBlank()) {
-            user.setPhone(request.getPhone().trim());
+            String phone = normalizePhoneOrFail(request.getPhone(), "phone");
+            userRepository.findByPhone(phone).filter(o -> !o.getId().equals(user.getId())).ifPresent(o -> {
+                throw ApiException.conflict("PHONE_ALREADY_EXISTS", "Bu telefon raqamli foydalanuvchi allaqachon mavjud");
+            });
+            user.setPhone(phone);
         }
         if (request.getEmail() != null && !request.getEmail().isBlank()) {
-            user.setEmail(request.getEmail().trim());
+            String email = request.getEmail().trim();
+            userRepository.findByEmail(email).filter(o -> !o.getId().equals(user.getId())).ifPresent(o -> {
+                throw ApiException.conflict("EMAIL_ALREADY_EXISTS", "Bu email bilan foydalanuvchi allaqachon mavjud");
+            });
+            user.setEmail(email);
         }
         if (request.getAvatarUrl() != null && !request.getAvatarUrl().isBlank()) {
-            user.setAvatarUrl(request.getAvatarUrl().trim());
+            user.setAvatarUrl(FileUrls.normalize(request.getAvatarUrl()));
         }
 
-        user = userRepository.save(user);
-
-        // Audit log
-        try {
-            auditLogRepository.save(SuperAdminAuditLog.builder()
-                    .actorId(user.getId())
-                    .action("PROFILE_UPDATE")
-                    .metadata("SuperAdmin profil ma'lumotlari yangilandi: " + user.getFullName())
-                    .createdAt(Instant.now())
-                    .build());
-        } catch (Exception ignored) {}
-
-        return mapToProfileResponse(user);
+        User saved = userRepository.save(user);
+        auditService.record(AuditAction.PROFILE_UPDATE, "SUPERADMIN", saved.getId(), oldV, profileSnapshot(saved));
+        return mapToProfileResponse(saved);
     }
 
+    /**
+     * Joriy parol tekshiriladi, newPassword = confirmPassword, yagona siyosat (422), muvaffaqiyatdan keyin
+     * barcha refresh tokenlar bekor qilinadi, audit PASSWORD_CHANGED.
+     */
     @Transactional
     public void changePassword(ChangePasswordRequest request) {
         User user = getCurrentSuperAdminUser();
 
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
-            throw new BadRequestException("Joriy parol noto'g'ri kiritildi");
+            throw ApiException.unprocessable("CURRENT_PASSWORD_INVALID", "currentPassword", "Joriy parol noto'g'ri kiritildi");
         }
-
-        if (request.getNewPassword() == null || request.getNewPassword().length() < 8) {
-            throw new BadRequestException("Yangi parol kamida 8 ta belgidan iborat bo'lishi kerak");
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw ApiException.unprocessable("PASSWORD_CONFIRMATION_MISMATCH", "confirmPassword",
+                    "Yangi parol va uni tasdiqlash mos kelmadi");
         }
-
-        if (request.getConfirmPassword() != null && !request.getConfirmPassword().isBlank()
-                && !request.getNewPassword().equals(request.getConfirmPassword())) {
-            throw new BadRequestException("Yangi parol va uni tasdiqlash mos kelmadi");
+        PasswordPolicy.validate(request.getNewPassword(), "newPassword");
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPasswordHash())) {
+            throw ApiException.unprocessable("PASSWORD_UNCHANGED", "newPassword", "Yangi parol joriy paroldan farq qilishi kerak");
         }
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
+        int revoked = refreshTokenService.revokeAll(user.getId());
 
-        try {
-            auditLogRepository.save(SuperAdminAuditLog.builder()
-                    .actorId(user.getId())
-                    .action("PASSWORD_CHANGE")
-                    .metadata("SuperAdmin hisob paroli muvaffaqiyatli yangilandi")
-                    .createdAt(Instant.now())
+        Map<String, Object> extra = new LinkedHashMap<>();
+        extra.put("revokedSessions", revoked);
+        auditService.record(AuditAction.PASSWORD_CHANGED, "SUPERADMIN", user.getId(), null, null, extra);
+    }
+
+    // ==========================================
+    // 5. KUNMA-KUN DINAMIKA (BE-01, BE-10)
+    // ==========================================
+
+    /**
+     * Kunlar bo'yicha: yaratilgan buyurtmalar (created_at), yakunlanganlar va tushum (completed_at, faqat COMPLETED).
+     * farmId berilmasa revenue/totalRevenue/orderedAmount qaytarilmaydi (TZ §5.5).
+     */
+    public DailyDynamicsResponse getDailyDynamics(Integer days, LocalDate startDate, LocalDate endDate, Long farmId) {
+        LocalDate end = endDate != null ? endDate : TashkentTime.today();
+        int dayCount = days != null ? days : 7;
+        LocalDate start = startDate != null ? startDate : end.minusDays(dayCount - 1L);
+        Granularity.validateRange(start, end, 366);
+
+        boolean withMoney = farmId != null;
+        Map<LocalDate, OrderStatsService.DayCounts> created = orderStatsService.dailyCreated(farmId, start, end);
+        Map<LocalDate, RevenueService.Totals> revenue = revenueService.dailyTotals(farmId, start, end);
+
+        List<DailyDynamicsItem> items = new ArrayList<>();
+        long totalOrders = 0;
+        long totalCompleted = 0;
+        long totalCancelled = 0;
+        BigDecimal totalRevenue = BigDecimal.ZERO;
+        BigDecimal totalTara = BigDecimal.ZERO;
+
+        for (LocalDate cur = start; !cur.isAfter(end); cur = cur.plusDays(1)) {
+            OrderStatsService.DayCounts c = created.getOrDefault(cur, OrderStatsService.DayCounts.ZERO);
+            RevenueService.Totals r = revenue.getOrDefault(cur, RevenueService.Totals.ZERO);
+            totalOrders += c.total();
+            totalCompleted += r.completedOrders();
+            totalCancelled += c.cancelled();
+            totalRevenue = totalRevenue.add(r.revenue());
+            totalTara = totalTara.add(r.taraRevenue());
+
+            items.add(DailyDynamicsItem.builder()
+                    .date(cur.toString())
+                    .dayOfWeek(uzbekDayOfWeek(cur.getDayOfWeek()))
+                    .totalOrders(c.total())
+                    .completedOrders(r.completedOrders())
+                    .cancelledOrders(c.cancelled())
+                    .orderedAmount(withMoney ? c.orderedAmount() : null)
+                    .revenue(withMoney ? r.revenue() : null)
+                    .taraRevenue(withMoney ? r.taraRevenue() : null)
                     .build());
-        } catch (Exception ignored) {}
+        }
+
+        return DailyDynamicsResponse.builder()
+                .farmId(farmId)
+                .startDate(start.toString())
+                .endDate(end.toString())
+                .totalOrders(totalOrders)
+                .completedOrders(totalCompleted)
+                .cancelledOrders(totalCancelled)
+                .totalRevenue(withMoney ? totalRevenue : null)
+                .totalTaraRevenue(withMoney ? totalTara : null)
+                .days(items)
+                .build();
+    }
+
+    // ==========================================
+    // Yordamchilar
+    // ==========================================
+
+    private User findBoss(Long bossId) {
+        User boss = userRepository.findById(bossId)
+                .orElseThrow(() -> ApiException.notFound("BOSS_NOT_FOUND", "Rahbar topilmadi: ID=" + bossId));
+        if (boss.getRole() != Role.BOSS || "DELETED".equalsIgnoreCase(boss.getStatus())) {
+            throw ApiException.notFound("BOSS_NOT_FOUND", "Rahbar topilmadi: ID=" + bossId);
+        }
+        return boss;
+    }
+
+    private BossItemResponse mapToBossItem(User boss, Farm farm) {
+        boolean isActive = "ACTIVE".equalsIgnoreCase(boss.getStatus());
+        return BossItemResponse.builder()
+                .id(boss.getId())
+                .fullName(boss.getFullName())
+                .phone(boss.getPhone())
+                .avatarUrl(FileUrls.normalize(boss.getAvatarUrl()))
+                .farmId(farm != null ? farm.getId() : null)
+                .farmCode(farm != null ? farmCode(farm) : null)
+                .farmName(farm != null ? farm.getName() : null)
+                .status(boss.getStatus())
+                .active(isActive)
+                .statusLabel(isActive ? "Faol" : "Bloklangan")
+                .activationStatus(effectiveActivation(boss))
+                .createdAt(boss.getCreatedAt())
+                .build();
+    }
+
+    private static BossActivationStatus effectiveActivation(User u) {
+        return u.getActivationStatus() != null ? u.getActivationStatus() : BossActivationStatus.NOT_REQUESTED;
+    }
+
+    private static String farmCode(Farm f) {
+        return String.format("farm-%03d", f.getId());
+    }
+
+    private static Map<String, Object> bossSnapshot(User boss, Farm farm) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("fullName", boss.getFullName());
+        m.put("phone", boss.getPhone());
+        m.put("status", boss.getStatus());
+        m.put("avatarUrl", boss.getAvatarUrl());
+        m.put("farmId", farm != null ? farm.getId() : null);
+        return m;
+    }
+
+    private static Map<String, Object> profileSnapshot(User u) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("fullName", u.getFullName());
+        m.put("phone", u.getPhone());
+        m.put("email", u.getEmail());
+        m.put("avatarUrl", u.getAvatarUrl());
+        return m;
+    }
+
+    private static String normalizeStatusFilter(String status) {
+        if (status == null || status.isBlank()) return null;
+        String s = status.trim().toUpperCase(Locale.ROOT);
+        return switch (s) {
+            case "ALL", "BARCHA" -> null;
+            case "ACTIVE", "FAOL" -> "ACTIVE";
+            case "BLOCKED", "BLOKLANGAN" -> "BLOCKED";
+            default -> throw ApiException.badRequest("INVALID_PARAMETER", "'status' faqat ACTIVE yoki BLOCKED bo'lishi mumkin");
+        };
+    }
+
+    private static Comparator<User> bossComparator(Sort sort) {
+        Sort.Order order = sort.iterator().hasNext() ? sort.iterator().next() : Sort.Order.desc("createdAt");
+        Comparator<User> c = switch (order.getProperty()) {
+            case "fullName" -> Comparator.comparing(u -> u.getFullName() == null ? "" : u.getFullName().toLowerCase(Locale.ROOT));
+            case "id" -> Comparator.comparing(User::getId);
+            default -> Comparator.comparing(User::getCreatedAt, Comparator.nullsFirst(Comparator.naturalOrder()));
+        };
+        return order.isAscending() ? c : c.reversed();
+    }
+
+    private JsonNode parseMetadata(String metadata) {
+        if (metadata == null || metadata.isBlank()) return null;
+        try {
+            return objectMapper.readTree(metadata);
+        } catch (Exception e) {
+            // Eski yozuvlar oddiy matn bo'lishi mumkin
+            return objectMapper.getNodeFactory().textNode(metadata);
+        }
     }
 
     private User getCurrentSuperAdminUser() {
-        Long currentUserId = uz.gidrogo.common.SecurityUtils.getCurrentUserId();
-        if (currentUserId != null) {
-            return userRepository.findById(currentUserId)
-                    .orElseGet(() -> userRepository.findAll().stream()
-                            .filter(u -> u.getRole() == Role.SUPER_ADMIN)
-                            .findFirst()
-                            .orElseThrow(() -> new ResourceNotFoundException("SuperAdmin foydalanuvchisi topilmadi")));
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        if (currentUserId == null) {
+            throw new ApiException(org.springframework.http.HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Avtorizatsiyadan o'tilmagan");
         }
-        return userRepository.findAll().stream()
-                .filter(u -> u.getRole() == Role.SUPER_ADMIN)
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("SuperAdmin foydalanuvchisi topilmadi"));
+        User user = userRepository.findById(currentUserId)
+                .orElseThrow(() -> ApiException.notFound("USER_NOT_FOUND", "SuperAdmin foydalanuvchisi topilmadi"));
+        if (user.getRole() != Role.SUPER_ADMIN) {
+            throw ApiException.forbidden("FORBIDDEN", "Bu amal faqat SuperAdmin uchun");
+        }
+        return user;
     }
 
     private SuperAdminProfileResponse mapToProfileResponse(User user) {
-        String fullName = user.getFullName() != null ? user.getFullName() : "Super Admin";
+        String fullName = user.getFullName() != null ? user.getFullName() : "";
         String firstName = fullName;
         String lastName = "";
         int spaceIdx = fullName.indexOf(' ');
@@ -467,130 +763,64 @@ public class SuperAdminService {
             firstName = fullName.substring(0, spaceIdx);
             lastName = fullName.substring(spaceIdx + 1);
         }
-
-        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy").withZone(ZoneId.of("Asia/Tashkent"));
-        String formattedCreated = user.getCreatedAt() != null ? dateFormatter.format(user.getCreatedAt()) : "01.10.2026";
-
-        String avatar = user.getAvatarUrl();
-        if (avatar == null || avatar.isBlank()) {
-            avatar = "https://ui-avatars.com/api/?name=" + firstName + "+" + (lastName.isEmpty() ? "Admin" : lastName) + "&background=2563EB&color=fff&rounded=true";
-        }
-
         return SuperAdminProfileResponse.builder()
                 .id(user.getId())
                 .firstName(firstName)
                 .lastName(lastName)
                 .fullName(fullName)
-                .phone(user.getPhone() != null ? user.getPhone() : "")
-                .email(user.getEmail() != null ? user.getEmail() : "")
-                .role(user.getRole() != null ? user.getRole().name() : "SUPER_ADMIN")
-                .roleTitle("Bosh Platforma Administratori")
-                .avatarUrl(avatar)
+                .phone(user.getPhone())
+                .email(user.getEmail())
+                .role(user.getRole().name())
+                .avatarUrl(FileUrls.normalize(user.getAvatarUrl()))
                 .createdAt(user.getCreatedAt())
-                .formattedCreatedAt(formattedCreated)
                 .build();
     }
 
-    // ==========================================
-    // 4. KUNMA-KUN DINAMIKA (DAILY DYNAMICS)
-    // ==========================================
-    public DailyDynamicsResponse getDailyDynamics(Integer days, java.time.LocalDate startDate, java.time.LocalDate endDate, Long farmId) {
-        ZoneId zone = ZoneId.of("Asia/Tashkent");
-
-        java.time.LocalDate end = endDate != null ? endDate : java.time.LocalDate.now(zone);
-        int dayCount = (days != null && days > 0) ? days : 7;
-        java.time.LocalDate start = startDate != null ? startDate : end.minusDays(dayCount - 1);
-
-        if (start.isAfter(end)) {
-            java.time.LocalDate temp = start;
-            start = end;
-            end = temp;
+    private static String normalizePhoneOrFail(String raw, String field) {
+        String p = OtpService.normalizePhone(raw);
+        if (!p.matches("^\\+998\\d{9}$")) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "INVALID_PHONE",
+                    "Telefon formati noto'g'ri. Masalan: +998901234567",
+                    List.of(new uz.gidrogo.common.ApiResponse.FieldErrorItem(field, "Telefon formati noto'g'ri")), null);
         }
-
-        Instant startInstant = start.atStartOfDay(zone).toInstant();
-        Instant endInstant = end.plusDays(1).atStartOfDay(zone).toInstant();
-
-        List<uz.gidrogo.modules.order.Order> orders;
-        if (farmId != null) {
-            orders = orderRepository.findAllByFarmIdAndCreatedAtBetweenOrderByCreatedAtAsc(farmId, startInstant, endInstant);
-        } else {
-            orders = orderRepository.findAllByCreatedAtBetweenOrderByCreatedAtAsc(startInstant, endInstant);
-        }
-
-        // Kunlar bo'yicha guruhlash
-        java.util.Map<java.time.LocalDate, List<uz.gidrogo.modules.order.Order>> ordersByDate = new java.util.HashMap<>();
-        for (uz.gidrogo.modules.order.Order o : orders) {
-            if (o.getCreatedAt() != null) {
-                java.time.LocalDate orderDate = o.getCreatedAt().atZone(zone).toLocalDate();
-                ordersByDate.computeIfAbsent(orderDate, k -> new ArrayList<>()).add(o);
-            }
-        }
-
-        List<DailyDynamicsItem> items = new ArrayList<>();
-        long grandTotalOrders = 0;
-        double grandTotalRevenue = 0.0;
-
-        java.time.LocalDate cur = start;
-        while (!cur.isAfter(end)) {
-            List<uz.gidrogo.modules.order.Order> dayOrders = ordersByDate.getOrDefault(cur, List.of());
-
-            long totalOrders = dayOrders.size();
-            long completedOrders = dayOrders.stream().filter(o -> o.getStatus() == uz.gidrogo.modules.order.OrderStatus.COMPLETED).count();
-            long cancelledOrders = dayOrders.stream().filter(o -> o.getStatus() == uz.gidrogo.modules.order.OrderStatus.CANCELLED).count();
-            double totalAmount = dayOrders.stream()
-                    .filter(o -> o.getTotalSum() != null && o.getStatus() != uz.gidrogo.modules.order.OrderStatus.CANCELLED)
-                    .mapToDouble(o -> o.getTotalSum().doubleValue())
-                    .sum();
-
-            grandTotalOrders += totalOrders;
-            grandTotalRevenue += totalAmount;
-
-            String formattedDate = cur.getDayOfMonth() + "-" + getUzbekMonthName(cur.getMonthValue());
-            String dayOfWeek = getUzbekDayOfWeek(cur.getDayOfWeek());
-
-            items.add(DailyDynamicsItem.builder()
-                    .date(cur.toString())
-                    .formattedDate(formattedDate)
-                    .dayOfWeek(dayOfWeek)
-                    .totalOrders(totalOrders)
-                    .completedOrders(completedOrders)
-                    .cancelledOrders(cancelledOrders)
-                    .totalAmount(totalAmount)
-                    .revenue(totalAmount)
-                    .build());
-
-            cur = cur.plusDays(1);
-        }
-
-        return DailyDynamicsResponse.builder()
-                .totalOrders(grandTotalOrders)
-                .totalRevenue(grandTotalRevenue)
-                .startDate(start.toString())
-                .endDate(end.toString())
-                .days(items)
-                .dynamics(items)
-                .build();
+        return p;
     }
 
-    private String getUzbekMonthName(int month) {
-        return switch (month) {
-            case 1 -> "yanvar";
-            case 2 -> "fevral";
-            case 3 -> "mart";
-            case 4 -> "aprel";
-            case 5 -> "may";
-            case 6 -> "iyun";
-            case 7 -> "iyul";
-            case 8 -> "avgust";
-            case 9 -> "sentabr";
-            case 10 -> "oktabr";
-            case 11 -> "noyabr";
-            case 12 -> "dekabr";
-            default -> "";
-        };
+    private long countUsers(Role role) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE role = :role AND status <> 'DELETED'",
+                new MapSqlParameterSource("role", role.name()), Long.class);
     }
 
-    private String getUzbekDayOfWeek(java.time.DayOfWeek dayOfWeek) {
+    private long countUsersCreated(Role role, Instant from, Instant to) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE role = :role AND created_at >= :from AND created_at < :to",
+                new MapSqlParameterSource("role", role.name())
+                        .addValue("from", Timestamp.from(from))
+                        .addValue("to", Timestamp.from(to)), Long.class);
+    }
+
+    private long countFarmsCreated(Instant from, Instant to) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM farms WHERE created_at >= :from AND created_at < :to",
+                new MapSqlParameterSource("from", Timestamp.from(from)).addValue("to", Timestamp.from(to)), Long.class);
+    }
+
+    private long countActiveClients(Instant from, Instant to) {
+        return jdbc.queryForObject("SELECT COUNT(DISTINCT client_id) FROM orders WHERE created_at >= :from AND created_at < :to",
+                new MapSqlParameterSource("from", Timestamp.from(from)).addValue("to", Timestamp.from(to)), Long.class);
+    }
+
+    private static String bucket(String unit, String column) {
+        return "CAST(date_trunc('" + unit + "', " + column + " AT TIME ZONE 'Asia/Tashkent') AS date)";
+    }
+
+    private Map<LocalDate, Long> bucketCounts(String sql, MapSqlParameterSource p) {
+        Map<LocalDate, Long> map = new HashMap<>();
+        jdbc.query(sql, p, rs -> {
+            map.put(rs.getDate("b").toLocalDate(), rs.getLong("c"));
+        });
+        return map;
+    }
+
+    private static String uzbekDayOfWeek(java.time.DayOfWeek dayOfWeek) {
         return switch (dayOfWeek) {
             case MONDAY -> "Dushanba";
             case TUESDAY -> "Seshanba";

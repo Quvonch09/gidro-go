@@ -43,6 +43,9 @@ public class BossService {
     private final ClientRepository clientRepository;
     private final FinanceRepository financeRepository;
     private final StringRedisTemplate redisTemplate;
+    private final uz.gidrogo.modules.finance.RevenueService revenueService;
+    private final uz.gidrogo.modules.farm.FarmAnalyticsService farmAnalyticsService;
+    private final uz.gidrogo.modules.stock.WarehouseStockRepository warehouseStockRepository;
 
     private Long resolveFarmId(Long requestedFarmId) {
         Long farmId = requestedFarmId != null ? requestedFarmId : SecurityUtils.getCurrentFarmId();
@@ -130,99 +133,48 @@ public class BossService {
     // ==========================================
     public List<FinanceChartItem> getFinanceChart(Long farmId, String period) {
         Long targetFarmId = resolveFarmId(farmId);
-        ZoneId zone = ZoneId.of("Asia/Tashkent");
-        LocalDate today = LocalDate.now(zone);
+        LocalDate today = uz.gidrogo.common.TashkentTime.today();
 
         int daysCount = "month".equalsIgnoreCase(period) ? 30 : 7;
         LocalDate startDate = today.minusDays(daysCount - 1);
 
-        Instant startInstant = startDate.atStartOfDay(zone).toInstant();
-        Instant endInstant = today.plusDays(1).atStartOfDay(zone).toInstant();
-
-        List<Order> orders = orderRepository.findAllByFarmIdAndCreatedAtBetweenOrderByCreatedAtDesc(targetFarmId, startInstant, endInstant);
-
-        Map<LocalDate, BigDecimal> dailyIncome = new HashMap<>();
-        for (Order o : orders) {
-            if (o.getCreatedAt() != null && o.getStatus() != OrderStatus.CANCELLED && o.getTotalSum() != null) {
-                LocalDate d = o.getCreatedAt().atZone(zone).toLocalDate();
-                dailyIncome.merge(d, o.getTotalSum(), BigDecimal::add);
-            }
-        }
+        // BE-01: tushum faqat COMPLETED (completed_at kuni), xarajat — Manager xarajatlari. Yagona RevenueService.
+        Map<LocalDate, uz.gidrogo.modules.finance.RevenueService.Totals> revenue =
+                revenueService.dailyTotals(targetFarmId, startDate, today);
+        Map<LocalDate, BigDecimal> expenses = revenueService.dailyExpenses(targetFarmId, startDate, today);
 
         List<FinanceChartItem> result = new ArrayList<>();
-        LocalDate cur = startDate;
-        while (!cur.isAfter(today)) {
-            BigDecimal inc = dailyIncome.getOrDefault(cur, BigDecimal.ZERO);
-            if (inc.compareTo(BigDecimal.ZERO) == 0) {
-                // Agar o'sha kuni buyurtma bo'lmasa, grafik buzilmasligi uchun realistik baza
-                inc = BigDecimal.valueOf(12500000 + (cur.getDayOfMonth() * 450000L % 3000000));
-            }
-            BigDecimal exp = inc.multiply(BigDecimal.valueOf(0.32)).setScale(0, java.math.RoundingMode.HALF_UP);
-            BigDecimal profit = inc.subtract(exp);
-
+        for (LocalDate cur = startDate; !cur.isAfter(today); cur = cur.plusDays(1)) {
+            BigDecimal inc = revenue.getOrDefault(cur, uz.gidrogo.modules.finance.RevenueService.Totals.ZERO).revenue();
+            BigDecimal exp = expenses.getOrDefault(cur, BigDecimal.ZERO);
             result.add(FinanceChartItem.builder()
                     .date(cur.toString())
                     .income(inc)
                     .expense(exp)
-                    .profit(profit)
+                    .profit(inc.subtract(exp))
                     .build());
-
-            cur = cur.plusDays(1);
         }
-
-        // Sana bo'yicha o'sish tartibida saralangan (Sorted ascending)
-        result.sort(Comparator.comparing(FinanceChartItem::getDate));
         return result;
     }
 
     // ==========================================
     // 4. MAHSULOTLAR SOTUV SUMMARY
     // ==========================================
+    /** BE-01: sotuv va tushum faqat COMPLETED buyurtmalardan; zaxira — ombordagi haqiqiy qoldiq. */
     public List<ProductSalesSummaryResponse> getProductsSalesSummary(Long farmId) {
         Long targetFarmId = resolveFarmId(farmId);
-        List<Product> products = productRepository.findAllByFarmId(targetFarmId);
-        List<ProductSalesSummaryResponse> list = new ArrayList<>();
-
-        for (Product p : products) {
-            long soldCount = 0;
-            BigDecimal revenue = BigDecimal.ZERO;
-            List<OrderItem> items = orderItemRepository.findAllByProductId(p.getId());
-            for (OrderItem oi : items) {
-                if (oi.getQuantity() != null) {
-                    soldCount += oi.getQuantity().longValue();
-                    if (oi.getUnitPrice() != null) {
-                        revenue = revenue.add(oi.getUnitPrice().multiply(oi.getQuantity()));
-                    }
-                }
-            }
-
-            if (soldCount == 0) {
-                soldCount = p.getName().contains("18.9") ? 540 : (p.getName().contains("10") ? 120 : 15);
-                revenue = p.getPrice() != null ? p.getPrice().multiply(BigDecimal.valueOf(soldCount)) : BigDecimal.valueOf(24300000);
-            }
-
-            list.add(ProductSalesSummaryResponse.builder()
-                    .productId(p.getId())
-                    .name(p.getName())
-                    .soldCount(soldCount)
-                    .revenue(revenue)
-                    .stock(BigDecimal.valueOf(p.getName().contains("18.9") ? 1840 : 450))
-                    .build());
-        }
-
-        if (list.isEmpty()) {
-            list.add(ProductSalesSummaryResponse.builder()
-                    .productId(1L).name("18.9L Kapsula").soldCount(540)
-                    .revenue(BigDecimal.valueOf(24300000)).stock(BigDecimal.valueOf(1840)).build());
-            list.add(ProductSalesSummaryResponse.builder()
-                    .productId(2L).name("10L Idish").soldCount(120)
-                    .revenue(BigDecimal.valueOf(3600000)).stock(BigDecimal.valueOf(450)).build());
-            list.add(ProductSalesSummaryResponse.builder()
-                    .productId(3L).name("Mexanik Nasos (Pompa)").soldCount(15)
-                    .revenue(BigDecimal.valueOf(750000)).stock(BigDecimal.valueOf(80)).build());
-        }
-
-        return list;
+        LocalDate today = uz.gidrogo.common.TashkentTime.today();
+        return farmAnalyticsService.productPerformance(targetFarmId, LocalDate.of(2000, 1, 1), today).stream()
+                .map(p -> ProductSalesSummaryResponse.builder()
+                        .productId(p.getProductId())
+                        .name(p.getName())
+                        .soldCount(p.getSoldQty().longValue())
+                        .revenue(p.getRevenue())
+                        .stock(warehouseStockRepository.findByFarmIdAndProductId(targetFarmId, p.getProductId())
+                                .map(uz.gidrogo.modules.stock.WarehouseStock::getQuantity)
+                                .orElse(BigDecimal.ZERO))
+                        .build())
+                .toList();
     }
 
     // ==========================================

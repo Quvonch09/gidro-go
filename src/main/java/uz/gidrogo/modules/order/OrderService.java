@@ -14,6 +14,7 @@ import uz.gidrogo.modules.client.ClientAddress;
 import uz.gidrogo.modules.client.ClientAddressRepository;
 import uz.gidrogo.modules.client.ClientRepository;
 import uz.gidrogo.modules.farm.Farm;
+import uz.gidrogo.modules.farm.FarmDispatchSettings;
 import uz.gidrogo.modules.farm.FarmRepository;
 import uz.gidrogo.modules.farm.FarmStatus;
 import uz.gidrogo.modules.order.dto.OrderDtos.*;
@@ -42,6 +43,8 @@ public class OrderService {
     private final AssignmentService assignmentService;
     private final @org.springframework.context.annotation.Lazy uz.gidrogo.modules.courier.CourierDispatchService courierDispatchService;
     private final uz.gidrogo.websocket.WebSocketEventPublisher eventPublisher;
+    private final uz.gidrogo.modules.bottle.ClientBottleBalanceRepository clientBottleBalanceRepository;
+    private final uz.gidrogo.modules.farm.FarmDispatchSettingsRepository farmDispatchSettingsRepository;
 
     /**
      * 6.4: Ko'p-fermali savatni fermalar bo'yicha alohida buyurtmalarga ajratish va rasmiylashtirish
@@ -51,6 +54,13 @@ public class OrderService {
         Long userId = SecurityUtils.getCurrentUserId();
         Client client = clientRepository.findByUserId(userId)
                 .orElseThrow(() -> new BadRequestException("Mijoz profili topilmadi"));
+
+        // BE-08: bloklangan/o'chirilgan mijoz access token hali amalda bo'lsa ham buyurtma bera olmaydi
+        userRepository.findById(userId).ifPresent(u -> {
+            if ("BLOCKED".equalsIgnoreCase(u.getStatus()) || "DELETED".equalsIgnoreCase(u.getStatus())) {
+                throw uz.gidrogo.common.ApiException.forbidden("CLIENT_BLOCKED", "Hisobingiz bloklangan");
+            }
+        });
 
         ClientAddress address = clientAddressRepository.findById(request.getAddressId())
                 .orElseThrow(() -> new ResourceNotFoundException("Yetkazib berish manzili topilmadi"));
@@ -99,31 +109,41 @@ public class OrderService {
             Farm farm = farmRepository.findById(farmId)
                     .orElseThrow(() -> new ResourceNotFoundException("Ferma topilmadi: ID " + farmId));
 
+            // BE-14: bloklangan yoki nofaol fermaga yangi buyurtma yo'q
             if (farm.getStatus() == FarmStatus.BLOCKED) {
-                throw new BadRequestException("Kechirasiz, " + farm.getName() + " vaqtincha yangi buyurtmalarni qabul qilmaydi");
+                throw uz.gidrogo.common.ApiException.conflict("FARM_BLOCKED",
+                        "Kechirasiz, " + farm.getName() + " bloklangan va yangi buyurtmalarni qabul qilmaydi");
+            }
+            if (farm.getStatus() == FarmStatus.INACTIVE) {
+                throw uz.gidrogo.common.ApiException.conflict("FARM_INACTIVE",
+                        "Kechirasiz, " + farm.getName() + " vaqtincha ishlamayapti");
             }
 
-            BigDecimal totalSum = BigDecimal.ZERO;
-            BigDecimal depositAmount = BigDecimal.ZERO;
-            int totalWaterBottles = 0;
-            BigDecimal bottleDepositUnit = BigDecimal.ZERO;
+            BigDecimal productsSum = BigDecimal.ZERO;
+            BigDecimal taraSum = BigDecimal.ZERO;
+            int taraQtyEstimated = 0;
 
             for (CartItemDto ci : farmItems) {
                 Product p = productCache.get(ci.getProductId());
-                totalSum = totalSum.add(p.getPrice().multiply(ci.getQuantity()));
-                if (p.getDepositPrice() != null && p.getDepositPrice().compareTo(BigDecimal.ZERO) > 0) {
-                    totalWaterBottles += ci.getQuantity().intValue();
-                    bottleDepositUnit = p.getDepositPrice();
+                BigDecimal lineSum = p.getPrice().multiply(ci.getQuantity());
+                productsSum = productsSum.add(lineSum);
+
+                if (p.isReturnable()) {
+                    int clientBalance = clientBottleBalanceRepository
+                            .findByClientIdAndFarmIdAndProductId(client.getId(), farmId, p.getId())
+                            .map(uz.gidrogo.modules.bottle.ClientBottleBalance::getBalance)
+                            .orElse(0);
+                    int orderedQty = ci.getQuantity().intValue();
+                    int estTara = Math.max(0, orderedQty - clientBalance);
+                    taraQtyEstimated += estTara;
+                    BigDecimal unitTara = p.getTaraPrice() != null ? p.getTaraPrice() :
+                            (p.getDepositPrice() != null ? p.getDepositPrice() : BigDecimal.ZERO);
+                    taraSum = taraSum.add(unitTara.multiply(BigDecimal.valueOf(estTara)));
                 }
             }
 
+            BigDecimal totalSum = productsSum.add(taraSum);
             int emptyReturned = request.getEmptyBottlesReturned() != null ? request.getEmptyBottlesReturned() : 0;
-            int newBottlesNeeded = Math.max(0, totalWaterBottles - emptyReturned);
-            if (newBottlesNeeded > 0 && bottleDepositUnit.compareTo(BigDecimal.ZERO) > 0) {
-                depositAmount = bottleDepositUnit.multiply(BigDecimal.valueOf(newBottlesNeeded));
-                totalSum = totalSum.add(depositAmount);
-            }
-
             String orderNumber = "ORD-" + System.currentTimeMillis() % 10000000 + "-" + farmId;
 
             Order order = Order.builder()
@@ -135,7 +155,10 @@ public class OrderService {
                     .paymentMethod(request.getPaymentMethod())
                     .paymentStatus(request.getPaymentMethod() == PaymentMethod.ONLINE ? PaymentStatus.PAID : PaymentStatus.PENDING)
                     .totalSum(totalSum)
-                    .depositAmount(depositAmount)
+                    .productsSum(productsSum)
+                    .taraQtyEstimated(taraQtyEstimated)
+                    .taraSum(taraSum)
+                    .depositAmount(taraSum)
                     .emptyBottlesReturned(emptyReturned)
                     .deliverySlot(request.getDeliverySlot())
                     .deliveryAddress(address.getAddress())
@@ -153,6 +176,8 @@ public class OrderService {
                         .productId(p.getId())
                         .quantity(ci.getQuantity())
                         .unitPrice(p.getPrice())
+                        .volumeLitersSnapshot(p.getVolumeLiters())
+                        .taraPriceSnapshot(p.isReturnable() ? (p.getTaraPrice() != null ? p.getTaraPrice() : p.getDepositPrice()) : null)
                         .build();
                 orderItemRepository.save(orderItem);
             }
@@ -208,7 +233,7 @@ public class OrderService {
         } catch (Exception ignored) {}
 
         try {
-            courierDispatchService.onOrderCancelled(order);
+            courierDispatchService.onOrderCancelledOrReassigned(order);
         } catch (Exception ignored) {}
 
         return response;
@@ -226,11 +251,66 @@ public class OrderService {
             throw new BadRequestException("Dastavkachi ushbu fermaga tegishli emas");
         }
 
+        // 2-talab: N va erkin zaxira qat'iy tekshiriladi: buzilsa 409
+        FarmDispatchSettings settings = farmDispatchSettingsRepository.findById(order.getFarmId()).orElse(null);
+        int maxActive = settings != null && settings.getMaxActiveOrders() != null ? settings.getMaxActiveOrders() : 2;
+
+        List<Order> activeOrdersOfNewCourier = orderRepository.findAllByCourierIdAndStatusIn(
+                newCourierId,
+                List.of(OrderStatus.ASSIGNED, OrderStatus.ON_THE_WAY, OrderStatus.NEARBY, OrderStatus.PROBLEM)
+        );
+        if (activeOrdersOfNewCourier.size() >= maxActive) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "COURIER_AT_CAPACITY: Dastavkachida maksimal buyurtmalar soniga (" + maxActive + ") yetgan");
+        }
+
+        List<OrderItem> items = orderItemRepository.findAllByOrderId(orderId);
+        for (OrderItem oi : items) {
+            BigDecimal freeStock = courierDispatchService.calculateFreeStock(newCourierId, oi.getProductId(), activeOrdersOfNewCourier);
+            if (freeStock.compareTo(oi.getQuantity()) < 0) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.CONFLICT,
+                        "INSUFFICIENT_STOCK: Dastavkachida erkin zaxira yetarli emas");
+            }
+        }
+
+        // R tekshirilmaydi, lekin R dan tashqarida bo'lsa warnings: ["OUT_OF_RADIUS"]
+        List<String> warnings = new ArrayList<>();
+        int secondOrderRadiusM = settings != null && settings.getSecondOrderRadiusM() != null ? settings.getSecondOrderRadiusM() : 1500;
+        if (!activeOrdersOfNewCourier.isEmpty()) {
+            Order anchor = activeOrdersOfNewCourier.get(0);
+            if (anchor.getLatitude() != null && anchor.getLongitude() != null && order.getLatitude() != null && order.getLongitude() != null) {
+                double dist = uz.gidrogo.common.GeoUtils.calculateDistanceMeters(
+                        anchor.getLatitude().doubleValue(), anchor.getLongitude().doubleValue(),
+                        order.getLatitude().doubleValue(), order.getLongitude().doubleValue()
+                );
+                if (dist > secondOrderRadiusM) {
+                    warnings.add("OUT_OF_RADIUS");
+                }
+            }
+        }
+
         Long oldCourierId = order.getCourierId();
         OrderStatus prev = order.getStatus();
+
+        // Agar eski kuryerda bu buyurtma yakor bo'lsa, uning 2-buyurtmasini 1-o'ringa surish
+        if (oldCourierId != null) {
+            try {
+                courierDispatchService.onOrderCancelledOrReassigned(order);
+            } catch (Exception ignored) {}
+        }
+
         order.setCourierId(newCourierId);
         order.setStatus(OrderStatus.ASSIGNED);
         order.setAssignedAt(Instant.now());
+        if (activeOrdersOfNewCourier.isEmpty()) {
+            order.setDeliverySequence(1);
+            order.setAnchorOrderId(null);
+        } else {
+            order.setDeliverySequence(2);
+            order.setAnchorOrderId(activeOrdersOfNewCourier.get(0).getId());
+        }
         order = orderRepository.save(order);
 
         statusHistoryRepository.save(OrderStatusHistory.builder()
@@ -241,12 +321,12 @@ public class OrderService {
                 .build());
 
         OrderResponse response = mapToResponse(order, false);
-        try {
-            eventPublisher.publishOrderAssigned(order.getFarmId(), newCourierId, response);
-        } catch (Exception ignored) {}
+        if (!warnings.isEmpty()) {
+            response.setWarnings(warnings);
+        }
 
         try {
-            courierDispatchService.onOrderReassigned(order, oldCourierId, newCourierId);
+            eventPublisher.publishOrderAssigned(order.getFarmId(), newCourierId, response);
         } catch (Exception ignored) {}
 
         return response;
@@ -530,9 +610,6 @@ public class OrderService {
             try {
                 eventPublisher.publishOrderAssigned(farmId, request.getCourierId(), resp);
             } catch (Exception ignored) {}
-            try {
-                courierDispatchService.onOrderReassigned(order, null, request.getCourierId());
-            } catch (Exception ignored) {}
         } else {
             try {
                 courierDispatchService.dispatchOrderToNextCandidate(order);
@@ -548,7 +625,8 @@ public class OrderService {
         User clientUser = client != null ? userRepository.findById(client.getUserId()).orElse(null) : null;
         User courierUser = order.getCourierId() != null ? userRepository.findById(order.getCourierId()).orElse(null) : null;
 
-        List<OrderItemResponse> itemResponses = orderItemRepository.findAllByOrderId(order.getId()).stream()
+        List<OrderItem> orderItems = orderItemRepository.findAllByOrderId(order.getId());
+        List<OrderItemResponse> itemResponses = orderItems.stream()
                 .map(oi -> {
                     Product p = productRepository.findById(oi.getProductId()).orElse(null);
                     return OrderItemResponse.builder()
@@ -560,6 +638,27 @@ public class OrderService {
                             .subtotal(oi.getUnitPrice().multiply(oi.getQuantity()))
                             .build();
                 }).toList();
+
+        List<OrderBottleDetailDto> bottles = new ArrayList<>();
+        for (OrderItem oi : orderItems) {
+            Product p = productRepository.findById(oi.getProductId()).orElse(null);
+            if (p != null && p.isReturnable()) {
+                int clientBalance = clientBottleBalanceRepository
+                        .findByClientIdAndFarmIdAndProductId(order.getClientId(), order.getFarmId(), p.getId())
+                        .map(uz.gidrogo.modules.bottle.ClientBottleBalance::getBalance)
+                        .orElse(0);
+                int q = oi.getQuantity() != null ? oi.getQuantity().intValue() : 0;
+                int expectedEmpty = Math.min(q, clientBalance);
+                int estTara = Math.max(0, q - clientBalance);
+                bottles.add(OrderBottleDetailDto.builder()
+                        .productId(p.getId())
+                        .productName(p.getName())
+                        .fullQty(q)
+                        .expectedEmptyQty(expectedEmpty)
+                        .taraQtyEstimated(estTara)
+                        .build());
+            }
+        }
 
         // BR-08: Online buyurtmada summa dastavkachiga KO'RSATILMAYDI
         BigDecimal displayedTotal = hideTotalForCourier && order.getPaymentMethod() == PaymentMethod.ONLINE && order.getPaymentStatus() == PaymentStatus.PAID
@@ -592,6 +691,16 @@ public class OrderService {
                 .longitude(order.getLongitude())
                 .clientComment(order.getClientComment())
                 .items(itemResponses)
+                .deliverySequence(order.getDeliverySequence())
+                .anchorOrderId(order.getAnchorOrderId())
+                .preparingReason(order.getPreparingReason())
+                .preparingSince(order.getPreparingSince())
+                .dispatchAttempts(order.getDispatchAttempts())
+                .productsSum(order.getProductsSum())
+                .taraQtyEstimated(order.getTaraQtyEstimated())
+                .taraQtyFinal(order.getTaraQtyFinal())
+                .taraSum(order.getTaraSum())
+                .bottles(bottles)
                 .assignedAt(order.getAssignedAt())
                 .deliveredAt(order.getDeliveredAt())
                 .completedAt(order.getCompletedAt())

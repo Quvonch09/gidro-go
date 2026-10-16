@@ -154,6 +154,13 @@ public class BossController {
         return ResponseEntity.ok(ApiResponse.ok(staffService.updateStaffStatus(id, request.getStatus())));
     }
 
+    @DeleteMapping("/staff/{id}")
+    @Operation(summary = "Xodimni o'chirish (Kassa balansi 0 dan katta bo'lsa 409 CASH_BALANCE_NOT_ZERO)")
+    public ResponseEntity<ApiResponse<String>> deleteStaff(@PathVariable Long id) {
+        staffService.deleteStaff(id);
+        return ResponseEntity.ok(ApiResponse.ok("Xodim muvaffaqiyatli o'chirildi", null));
+    }
+
     @GetMapping("/finance/summary")
     @Operation(summary = "Ferma moliyaviy ko'rsatkichlarini kuzatish")
     public ResponseEntity<ApiResponse<FinanceSummaryResponse>> getFinanceSummary(@RequestParam(required = false, defaultValue = "month") String period) {

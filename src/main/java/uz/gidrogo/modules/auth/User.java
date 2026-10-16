@@ -42,7 +42,12 @@ public class User {
 
     @Column(nullable = false, length = 25)
     @Builder.Default
-    private String status = "ACTIVE"; // ACTIVE, BLOCKED, PENDING_APPROVAL
+    private String status = "ACTIVE"; // ACTIVE, BLOCKED, DELETED
+
+    /** Faqat BOSS uchun: NOT_REQUESTED → PENDING → APPROVED | REJECTED. Hisob holati (status) dan alohida. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "activation_status", length = 20)
+    private uz.gidrogo.modules.farm.BossActivationStatus activationStatus;
 
     @Column(name = "avatar_url")
     private String avatarUrl;

@@ -2,10 +2,16 @@ package uz.gidrogo.modules.superadmin;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.Immutable;
 
 import java.time.Instant;
 
+/**
+ * SuperAdmin boshqaruv amallari jurnali. Yozuvlar o'zgarmaydi va o'chirilmaydi
+ * (Hibernate @Immutable + bazada trigger, V12 migratsiya).
+ */
 @Entity
+@Immutable
 @Table(name = "superadmin_audit_log")
 @Getter
 @Setter
@@ -22,7 +28,7 @@ public class SuperAdminAuditLog {
     private Long actorId;
 
     @Column(nullable = false, length = 100)
-    private String action; // FARM_CREATED, BOSS_APPROVED, BOSS_REJECTED, FARM_BLOCKED, etc.
+    private String action; // AuditAction nomlari
 
     @Column(name = "entity_type", length = 50)
     private String entityType;
@@ -30,8 +36,15 @@ public class SuperAdminAuditLog {
     @Column(name = "entity_id")
     private Long entityId;
 
+    /** JSON: {"old": {...}, "new": {...}, ...}. Parol, token va boshqa sirlar yozilmaydi. */
     @Column(columnDefinition = "TEXT")
     private String metadata;
+
+    @Column(name = "ip_address", length = 64)
+    private String ipAddress;
+
+    @Column(name = "user_agent", length = 500)
+    private String userAgent;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default

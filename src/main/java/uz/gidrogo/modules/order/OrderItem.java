@@ -29,4 +29,10 @@ public class OrderItem {
 
     @Column(name = "unit_price", nullable = false, precision = 12, scale = 2)
     private BigDecimal unitPrice;
+
+    @Column(name = "volume_liters_snapshot", precision = 6, scale = 2)
+    private BigDecimal volumeLitersSnapshot;
+
+    @Column(name = "tara_price_snapshot", precision = 14, scale = 2)
+    private BigDecimal taraPriceSnapshot;
 }

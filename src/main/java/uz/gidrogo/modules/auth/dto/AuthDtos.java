@@ -14,14 +14,14 @@ public class AuthDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class LoginRequest {
-        @io.swagger.v3.oas.annotations.media.Schema(description = "Username yoki telefon raqami", example = "admin")
+        @io.swagger.v3.oas.annotations.media.Schema(description = "Username yoki telefon raqami", example = "+998901234567")
         private String login;
 
         @io.swagger.v3.oas.annotations.media.Schema(description = "Telefon raqam (agar login kiritilmagan bo'lsa)", example = "")
         private String phone;
 
         @NotBlank(message = "Parol kiritilishi shart")
-        @io.swagger.v3.oas.annotations.media.Schema(description = "Parol", example = "Parol123!")
+        @io.swagger.v3.oas.annotations.media.Schema(description = "Parol")
         private String password;
     }
 
@@ -126,6 +126,8 @@ public class AuthDtos {
         private Long farmId;
         private String farmName;
         private String status;
+        /** Faqat BOSS uchun: NOT_REQUESTED | PENDING | APPROVED | REJECTED. */
+        private uz.gidrogo.modules.farm.BossActivationStatus activationStatus;
     }
 
     @Data

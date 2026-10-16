@@ -1,0 +1,20 @@
+# Integratsiya testlari profili: toza PostgreSQL bazasi (Flyway V1..V14) va lokal Redis.
+# Bazani yaratish: psql -U postgres -c "CREATE DATABASE gidrogo_it"
+spring:
+  datasource:
+    url: ${IT_DB_URL:jdbc:postgresql://localhost:5432/gidrogo_it}
+    username: ${IT_DB_USERNAME:postgres}
+    password: ${IT_DB_PASSWORD:postgres}
+  flyway:
+    baseline-on-migrate: false
+
+telegram:
+  bot:
+    token: ""
+    mock-mode: true
+
+app:
+  upload:
+    dir: ./target/it-uploads
+  security:
+    trust-forwarded-headers: true

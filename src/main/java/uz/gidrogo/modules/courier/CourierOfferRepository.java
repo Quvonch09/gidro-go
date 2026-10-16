@@ -26,6 +26,10 @@ public interface CourierOfferRepository extends JpaRepository<CourierOffer, Long
 
     List<CourierOffer> findAllByExpiresAtBeforeAndStatus(Instant now, String status);
 
+    List<CourierOffer> findAllByStatus(String status);
+
+    List<CourierOffer> findAllByCourierIdAndStatus(Long courierId, String status);
+
     @Modifying
     @Query("UPDATE CourierOffer co SET co.status = :newStatus WHERE co.orderId = :orderId AND co.status = 'PENDING'")
     int cancelPendingOffersForOrder(@Param("orderId") Long orderId, @Param("newStatus") String newStatus);

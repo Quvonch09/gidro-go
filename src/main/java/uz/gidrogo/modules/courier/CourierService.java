@@ -38,8 +38,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import uz.gidrogo.modules.farm.FarmDispatchSettings;
 
 @Slf4j
 @Service
@@ -64,6 +66,11 @@ public class CourierService {
     private final uz.gidrogo.modules.rating.RatingRepository ratingRepository;
     private final uz.gidrogo.modules.client.ClientRepository clientRepository;
     private final uz.gidrogo.websocket.WebSocketEventPublisher eventPublisher;
+    private final uz.gidrogo.modules.cash.CashService cashService;
+    private final uz.gidrogo.modules.bottle.BottleService bottleService;
+    private final uz.gidrogo.modules.bottle.ClientBottleBalanceRepository bottleBalanceRepository;
+    private final uz.gidrogo.modules.farm.FarmDispatchSettingsRepository farmDispatchSettingsRepository;
+    private final @org.springframework.context.annotation.Lazy CourierDispatchService courierDispatchService;
 
     // ── Muammo sabablari ro'yxati ────────────────────────────────────────────
 
@@ -219,6 +226,31 @@ public class CourierService {
     public OrderResponse startDelivery(Long orderId) {
         Long courierId = SecurityUtils.getCurrentUserId();
         Order order = findCourierOrder(orderId, courierId);
+
+        // 2-buyurtmani start qilish (ON_THE_WAY) faqat 1-buyurtma DELIVERED yoki undan keyingi holatda bo'lsa mumkin.
+        // Aks holda 409 + code: "PREVIOUS_ORDER_NOT_DELIVERED"
+        if (order.getDeliverySequence() != null && order.getDeliverySequence() > 1) {
+            if (order.getAnchorOrderId() != null) {
+                Order anchor = orderRepository.findById(order.getAnchorOrderId()).orElse(null);
+                if (anchor != null && anchor.getStatus() != OrderStatus.DELIVERED && anchor.getStatus() != OrderStatus.COMPLETED) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                            org.springframework.http.HttpStatus.CONFLICT,
+                            "PREVIOUS_ORDER_NOT_DELIVERED: Oldingi buyurtma hali yetkazilmagan");
+                }
+            } else {
+                List<Order> active = orderRepository.findAllByCourierIdAndStatusIn(
+                        courierId, List.of(OrderStatus.ASSIGNED, OrderStatus.ON_THE_WAY, OrderStatus.NEARBY));
+                final Long curOrderId = order.getId();
+                final int curSeq = order.getDeliverySequence();
+                boolean hasPrior = active.stream().anyMatch(o -> !o.getId().equals(curOrderId) &&
+                        (o.getDeliverySequence() == null || o.getDeliverySequence() < curSeq));
+                if (hasPrior) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                            org.springframework.http.HttpStatus.CONFLICT,
+                            "PREVIOUS_ORDER_NOT_DELIVERED: Oldingi buyurtma hali yetkazilmagan");
+                }
+            }
+        }
 
         OrderStatus prev = order.getStatus();
         order.setStatus(OrderStatus.ON_THE_WAY);
@@ -392,6 +424,66 @@ public class CourierService {
         }
 
         List<OrderItem> items = orderItemRepository.findAllByOrderId(order.getId());
+
+        // 6-talab: Qaytarilgan bo'sh idishlarni tekshirish va yakuniy tara hisobi
+        Map<Long, Integer> emptyBottlesMap = new HashMap<>();
+        if (request.getEmptyBottles() != null && !request.getEmptyBottles().isEmpty()) {
+            for (EmptyBottleItem eb : request.getEmptyBottles()) {
+                if (eb.getProductId() != null && eb.getQty() != null) {
+                    emptyBottlesMap.put(eb.getProductId(), eb.getQty());
+                }
+            }
+        } else if (request.getEmptyBottlesReturned() != null) {
+            for (OrderItem item : items) {
+                Product p = productRepository.findById(item.getProductId()).orElse(null);
+                if (p != null && p.isReturnable()) {
+                    emptyBottlesMap.put(p.getId(), request.getEmptyBottlesReturned());
+                    break;
+                }
+            }
+        }
+
+        int totalTaraQtyFinal = 0;
+        BigDecimal finalTaraSum = BigDecimal.ZERO;
+        int totalEmptyReturned = 0;
+
+        for (OrderItem item : items) {
+            Product p = productRepository.findById(item.getProductId()).orElse(null);
+            if (p != null && p.isReturnable()) {
+                int q = item.getQuantity() != null ? item.getQuantity().intValue() : 0;
+                int clientP = bottleBalanceRepository
+                        .findByClientIdAndFarmIdAndProductId(order.getClientId(), order.getFarmId(), p.getId())
+                        .map(uz.gidrogo.modules.bottle.ClientBottleBalance::getBalance)
+                        .orElse(0);
+
+                int e = emptyBottlesMap.getOrDefault(p.getId(), 0);
+                int maxAllowed = Math.min(q, clientP);
+                if (e < 0 || e > maxAllowed) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                            org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
+                            "INVALID_EMPTY_BOTTLES: Qaytarilayotgan bo'sh idishlar soni noto'g'ri (0 <= e <= " + maxAllowed + ")");
+                }
+
+                int taraQtyFinal = q - e;
+                totalTaraQtyFinal += taraQtyFinal;
+                totalEmptyReturned += e;
+
+                BigDecimal unitTaraPrice = item.getTaraPriceSnapshot() != null ? item.getTaraPriceSnapshot() :
+                        (p.getTaraPrice() != null ? p.getTaraPrice() :
+                                (p.getDepositPrice() != null ? p.getDepositPrice() : BigDecimal.ZERO));
+                finalTaraSum = finalTaraSum.add(unitTaraPrice.multiply(BigDecimal.valueOf(taraQtyFinal)));
+
+                // Balans yangilanishi va bottle_ledger ga yozish
+                bottleService.recordDeliveryBottleBalance(order.getId(), order.getClientId(), order.getFarmId(), p.getId(), q, e);
+            }
+        }
+
+        order.setEmptyBottlesReturned(totalEmptyReturned);
+        order.setTaraQtyFinal(totalTaraQtyFinal);
+        order.setTaraSum(finalTaraSum);
+        BigDecimal productsSum = order.getProductsSum() != null ? order.getProductsSum() : BigDecimal.ZERO;
+        order.setTotalSum(productsSum.add(finalTaraSum));
+
         for (OrderItem item : items) {
             stockService.deductVehicleStock(courierId, item.getProductId(), item.getQuantity());
         }
@@ -414,6 +506,10 @@ public class CourierService {
                 .toStatus(order.getStatus())
                 .changedBy(courierId)
                 .build());
+
+        try {
+            courierDispatchService.onOrderDeliveredOrCompleted(order, courierId);
+        } catch (Exception ignored) {}
 
         OrderResponse resp = orderService.mapToResponse(order, true);
         eventPublisher.publishOrderStatusChanged(order.getFarmId(), courierId, order.getClientId(), resp);
@@ -454,7 +550,18 @@ public class CourierService {
                 .changedBy(courierId)
                 .build());
 
+        // 5-talab: Kassa ledgeriga COLLECTED yozuvi qo'shish
+        try {
+            cashService.recordCashCollected(order, courierId);
+        } catch (Exception e) {
+            log.error("Kassa ledgeriga yozishda xatolik: {}", e.getMessage());
+        }
+
         financeService.recordIncome(order.getFarmId(), order.getTotalSum(), order.getId(), courierId, "Naqd buyurtma to'lovi");
+
+        try {
+            courierDispatchService.onOrderDeliveredOrCompleted(order, courierId);
+        } catch (Exception ignored) {}
 
         OrderResponse resp = orderService.mapToResponse(order, true);
         eventPublisher.publishOrderStatusChanged(order.getFarmId(), courierId, order.getClientId(), resp);
@@ -515,6 +622,9 @@ public class CourierService {
             redisTemplate.opsForValue().set(redisKey, "true");
             log.info("Kuryer {} ONLINE bo'ldi", courierId);
             res = Map.of("status", "ONLINE", "message", "Siz endi onlinesiz");
+            try {
+                courierDispatchService.onCourierOnline(courierId, farmId);
+            } catch (Exception ignored) {}
         } else {
             redisTemplate.delete(redisKey);
             log.info("Kuryer {} OFFLINE bo'ldi", courierId);
@@ -990,6 +1100,16 @@ public class CourierService {
 
             BigDecimal deliveredToday = orderRepository.sumDeliveredBottlesByCourierSince(c.getId(), startOfToday);
 
+            FarmDispatchSettings settings = farmDispatchSettingsRepository.findById(farmId).orElse(null);
+            int maxActive = settings != null && settings.getMaxActiveOrders() != null ? settings.getMaxActiveOrders() : 2;
+            long activeCount = activeOrders.size();
+            String workloadState = activeCount >= maxActive ? "BUSY" : "FREE";
+            WorkloadDto workload = WorkloadDto.builder()
+                    .active(activeCount)
+                    .max(maxActive)
+                    .state(workloadState)
+                    .build();
+
             list.add(ManagerCourierItemResponse.builder()
                     .id(c.getId())
                     .fullName(c.getFullName())
@@ -1004,6 +1124,7 @@ public class CourierService {
                     .todayDeliveredBottles(deliveredToday != null ? deliveredToday : BigDecimal.ZERO)
                     .avatarUrl(c.getAvatarUrl() != null && !c.getAvatarUrl().isBlank() ? c.getAvatarUrl() :
                             "https://ui-avatars.com/api/?name=" + (c.getFullName() != null ? c.getFullName().replace(" ", "+") : "Courier") + "&background=0D8ABC&color=fff&rounded=true")
+                    .workload(workload)
                     .build());
         }
         return list;

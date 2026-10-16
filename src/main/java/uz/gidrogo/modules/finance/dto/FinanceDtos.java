@@ -35,9 +35,13 @@ public class FinanceDtos {
     @AllArgsConstructor
     public static class FinanceSummaryResponse {
         private Long farmId;
+        /** Tushum: faqat COMPLETED buyurtmalar, suv/mahsulot qismi (RevenueService). */
         private BigDecimal totalIncome;
+        /** Tara tushumi — alohida qator, foydaga kirmaydi. */
+        private BigDecimal taraIncome;
         private BigDecimal totalExpense;
         private BigDecimal netProfit; // totalIncome - totalExpense
+        private long completedOrders;
         private String period;
     }
 

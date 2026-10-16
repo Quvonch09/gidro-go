@@ -1,12 +1,16 @@
 package uz.gidrogo.modules.auth;
 
-import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import uz.gidrogo.common.ApiException;
 import uz.gidrogo.common.BadRequestException;
-import uz.gidrogo.common.ResourceNotFoundException;
+import uz.gidrogo.common.ClientIp;
+import uz.gidrogo.common.SecurityUtils;
 import uz.gidrogo.modules.auth.dto.AuthDtos.*;
 import uz.gidrogo.modules.client.Client;
 import uz.gidrogo.modules.client.ClientAddress;
@@ -15,13 +19,13 @@ import uz.gidrogo.modules.client.ClientRepository;
 import uz.gidrogo.modules.farm.*;
 import uz.gidrogo.security.JwtTokenProvider;
 
-import org.springframework.data.redis.core.StringRedisTemplate;
-import uz.gidrogo.common.SecurityUtils;
-
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -36,6 +40,8 @@ public class AuthService {
     private final ClientAddressRepository clientAddressRepository;
     private final StringRedisTemplate redisTemplate;
     private final OtpService otpService;
+    private final RefreshTokenService refreshTokenService;
+    private final LoginRateLimiter loginRateLimiter;
 
     public CheckPhoneResponse checkPhone(CheckPhoneRequest request) {
         String phone = OtpService.normalizePhone(request.getPhone());
@@ -66,7 +72,14 @@ public class AuthService {
         }
     }
 
-    @Transactional
+    /**
+     * Yagona login (barcha rollar). Xatolar:
+     * 401 INVALID_CREDENTIALS (umumiy xabar — qaysi biri noto'g'ri ekani aytilmaydi),
+     * 429 TOO_MANY_LOGIN_ATTEMPTS, 403 USER_BLOCKED / CLIENT_BLOCKED,
+     * Boss uchun 403 ACTIVATION_PENDING / ACTIVATION_REJECTED (token berilmaydi).
+     * noRollbackFor: faollashtirish so'rovi 403 javob bilan birga saqlanib qolishi kerak.
+     */
+    @Transactional(noRollbackFor = ApiException.class)
     public AuthResponse login(LoginRequest request) {
         String identifier = "";
         String reqLogin = (request.getLogin() != null && !request.getLogin().isBlank() && !request.getLogin().equalsIgnoreCase("string"))
@@ -78,13 +91,9 @@ public class AuthService {
             identifier = reqLogin;
         } else if (reqPhone != null) {
             identifier = reqPhone;
-        } else if (request.getLogin() != null && !request.getLogin().isBlank()) {
-            identifier = request.getLogin().trim();
-        } else if (request.getPhone() != null && !request.getPhone().isBlank()) {
-            identifier = request.getPhone().trim();
         }
         if (identifier.isBlank()) {
-            throw new BadRequestException("Telefon raqam yoki login kiritilishi shart");
+            throw ApiException.unprocessable("IDENTIFIER_REQUIRED", "phone", "Telefon raqam yoki login kiritilishi shart");
         }
         String altPhone = identifier;
         if (!identifier.startsWith("+") && identifier.matches("\\d+")) {
@@ -97,67 +106,36 @@ public class AuthService {
             altPhone = identifier.substring(1);
         }
 
-        User user = userRepository.findByUsernameOrPhone(identifier, altPhone)
-                .orElseThrow(() -> new BadRequestException("Login yoki parol noto'g'ri"));
+        String ip = ClientIp.ip();
+        String rateKey = altPhone.startsWith("+") ? altPhone : identifier;
+        loginRateLimiter.checkAllowed(rateKey, ip);
 
-        boolean passwordMatches = passwordEncoder.matches(request.getPassword(), user.getPasswordHash());
+        Optional<User> userOpt = userRepository.findByUsernameOrPhone(identifier, altPhone);
+        boolean passwordMatches = userOpt.isPresent()
+                && passwordEncoder.matches(request.getPassword(), userOpt.get().getPasswordHash());
 
-        // Agar superadmin bo'lsa va kiritilgan parol 'Parol123!' yoki 'Admin123!' bo'lsa, qabul qilamiz va parolni saqlaymiz
-        if (!passwordMatches && user.getRole() == Role.SUPER_ADMIN) {
-            String p = request.getPassword();
-            if ("Parol123!".equals(p) || "Admin123!".equals(p) || "admin".equalsIgnoreCase(p)) {
-                passwordMatches = true;
-                user.setPasswordHash(passwordEncoder.encode(p));
-                userRepository.save(user);
-            }
+        // O'chirilgan hisob — mavjud bo'lmagan hisob kabi javob oladi (holat oshkor qilinmaydi)
+        if (!passwordMatches || "DELETED".equalsIgnoreCase(userOpt.get().getStatus())) {
+            loginRateLimiter.recordFailure(rateKey, ip);
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Telefon yoki parol noto'g'ri");
         }
-
-        if (!passwordMatches) {
-            throw new BadRequestException("Login yoki parol noto'g'ri");
-        }
-
-        // 5.2 Boss Onboarding and Activation flow
-        if (user.getRole() == Role.BOSS && !"ACTIVE".equalsIgnoreCase(user.getStatus())) {
-            Optional<BossActivationRequest> latestRequest = activationRequestRepository
-                    .findTopByBossUserIdOrderByRequestedAtDesc(user.getId());
-
-            if (latestRequest.isEmpty()) {
-                user.setStatus("PENDING_APPROVAL");
-                userRepository.save(user);
-
-                BossActivationRequest newRequest = BossActivationRequest.builder()
-                        .farmId(user.getFarmId())
-                        .bossUserId(user.getId())
-                        .status(ActivationStatus.PENDING)
-                        .build();
-                activationRequestRepository.save(newRequest);
-
-                throw new BadRequestException("So'rovingiz qabul qilindi, tasdiqlanishini kuting");
-            } else {
-                BossActivationRequest bar = latestRequest.get();
-                if (bar.getStatus() == ActivationStatus.PENDING) {
-                    throw new BadRequestException("So'rovingiz qabul qilindi, tasdiqlanishini kuting");
-                } else if (bar.getStatus() == ActivationStatus.REJECTED) {
-                    throw new BadRequestException("So'rovingiz rad etilgan: " + (bar.getRejectReason() != null ? bar.getRejectReason() : ""));
-                }
-            }
-        }
+        loginRateLimiter.recordSuccess(rateKey);
+        User user = userOpt.get();
 
         if ("BLOCKED".equalsIgnoreCase(user.getStatus())) {
-            throw new BadRequestException("Foydalanuvchi bloklangan");
+            throw ApiException.forbidden(user.getRole() == Role.CLIENT ? "CLIENT_BLOCKED" : "USER_BLOCKED",
+                    "Hisobingiz bloklangan");
         }
 
-        Long farmId = user.getFarmId();
-        if (farmId == null && user.getRole() == Role.CLIENT) {
-            Client client = clientRepository.findByUserId(user.getId()).orElse(null);
-            if (client != null) {
-                farmId = client.getFarmId();
-            }
+        // TZ §7.2–7.3: Boss faollashtirish oqimi
+        if (user.getRole() == Role.BOSS) {
+            enforceBossActivation(user);
         }
 
+        Long farmId = resolveFarmId(user);
         String userIdentifier = user.getUsername() != null && !user.getUsername().isBlank() ? user.getUsername() : user.getPhone();
         String accessToken = jwtTokenProvider.generateAccessToken(user.getId(), userIdentifier, user.getRole(), farmId);
-        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId());
+        String refreshToken = refreshTokenService.issue(user.getId());
 
         String farmName = null;
         if (farmId != null) {
@@ -174,7 +152,72 @@ public class AuthService {
                 .farmId(farmId)
                 .farmName(farmName)
                 .status(user.getStatus())
+                .activationStatus(user.getActivationStatus())
                 .build();
+    }
+
+    /**
+     * activationStatus ≠ APPROVED bo'lsa token berilmaydi:
+     * NOT_REQUESTED/PENDING → PENDING so'rov yaratiladi yoki mavjudi qaytariladi, 403 ACTIVATION_PENDING;
+     * REJECTED → 403 ACTIVATION_REJECTED + sabab; keyingi kirishda yangi PENDING so'rov yaratiladi (TZ §7.3).
+     */
+    private void enforceBossActivation(User user) {
+        BossActivationStatus status = user.getActivationStatus() != null
+                ? user.getActivationStatus() : BossActivationStatus.NOT_REQUESTED;
+        if (status == BossActivationStatus.APPROVED) {
+            return;
+        }
+
+        if (status == BossActivationStatus.REJECTED) {
+            BossActivationRequest last = activationRequestRepository
+                    .findTopByBossUserIdOrderByRequestedAtDesc(user.getId()).orElse(null);
+            // Keyingi kirish qayta so'rov hisoblanadi
+            user.setActivationStatus(BossActivationStatus.NOT_REQUESTED);
+            userRepository.save(user);
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("activationStatus", BossActivationStatus.REJECTED);
+            details.put("rejectReason", last != null ? last.getRejectReason() : null);
+            details.put("decidedAt", last != null ? last.getDecidedAt() : null);
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACTIVATION_REJECTED",
+                    "So'rovingiz rad etilgan. Qayta kirsangiz, yangi so'rov yuboriladi", List.of(), details);
+        }
+
+        Long farmId = farmRepository.findByBossUserId(user.getId()).map(Farm::getId).orElse(null);
+        if (farmId == null) {
+            throw ApiException.forbidden("BOSS_HAS_NO_FARM", "Hisobingiz hech qaysi fermaga biriktirilmagan");
+        }
+        BossActivationRequest pending = activationRequestRepository
+                .findFirstByBossUserIdAndStatus(user.getId(), ActivationStatus.PENDING)
+                .orElseGet(() -> activationRequestRepository.save(BossActivationRequest.builder()
+                        .farmId(farmId)
+                        .bossUserId(user.getId())
+                        .status(ActivationStatus.PENDING)
+                        .build()));
+        if (user.getActivationStatus() != BossActivationStatus.PENDING) {
+            user.setActivationStatus(BossActivationStatus.PENDING);
+            userRepository.save(user);
+        }
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("activationStatus", BossActivationStatus.PENDING);
+        details.put("requestId", pending.getId());
+        details.put("requestedAt", pending.getRequestedAt());
+        throw new ApiException(HttpStatus.FORBIDDEN, "ACTIVATION_PENDING",
+                "So'rovingiz yuborildi, SuperAdmin tasdiqlashini kuting", List.of(), details);
+    }
+
+    /** BOSS uchun ferma yagona manbadan (farms.boss_user_id) olinadi. */
+    private Long resolveFarmId(User user) {
+        if (user.getRole() == Role.BOSS) {
+            return farmRepository.findByBossUserId(user.getId()).map(Farm::getId).orElse(null);
+        }
+        Long farmId = user.getFarmId();
+        if (farmId == null && user.getRole() == Role.CLIENT) {
+            Client client = clientRepository.findByUserId(user.getId()).orElse(null);
+            if (client != null) {
+                farmId = client.getFarmId();
+            }
+        }
+        return farmId;
     }
 
     @Transactional
@@ -231,7 +274,7 @@ public class AuthService {
         clientAddressRepository.save(address);
 
         String accessToken = jwtTokenProvider.generateAccessToken(user.getId(), user.getPhone(), user.getRole(), farm.getId());
-        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId());
+        String refreshToken = refreshTokenService.issue(user.getId());
 
         return AuthResponse.builder()
                 .accessToken(accessToken)
@@ -246,80 +289,60 @@ public class AuthService {
                 .build();
     }
 
+    /** Refresh: token bazada bo'lishi va bekor qilinmagan bo'lishi kerak; eski token bekor qilinadi (rotatsiya). */
     @Transactional
     public AuthResponse refreshToken(RefreshTokenRequest request) {
-        String refreshToken = request.getRefreshToken();
-        if (Boolean.TRUE.equals(redisTemplate.hasKey("blacklist:refresh:" + refreshToken.trim()))) {
-            throw new BadRequestException("Ushbu refresh token bekor qilingan (chiqib ketilgan)");
-        }
-
-        if (!jwtTokenProvider.validateToken(refreshToken)) {
-            throw new BadRequestException("Refresh token yaroqsiz yoki muddati o'tgan");
-        }
-
-        Claims claims = jwtTokenProvider.getClaimsFromToken(refreshToken);
-        String tokenType = claims.get("type", String.class);
-        if (!"REFRESH".equals(tokenType)) {
-            throw new BadRequestException("Yaroqli refresh token taqdim etilmadi");
-        }
-
-        Long userId = Long.parseLong(claims.getSubject());
+        Long userId = refreshTokenService.consume(request.getRefreshToken());
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("Foydalanuvchi topilmadi"));
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "REFRESH_TOKEN_INVALID", "Foydalanuvchi topilmadi"));
 
-        if ("BLOCKED".equalsIgnoreCase(user.getStatus())) {
-            throw new BadRequestException("Foydalanuvchi bloklangan");
+        if ("BLOCKED".equalsIgnoreCase(user.getStatus()) || "DELETED".equalsIgnoreCase(user.getStatus())) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "USER_BLOCKED", "Hisob bloklangan yoki o'chirilgan");
+        }
+        if (user.getRole() == Role.BOSS && user.getActivationStatus() != BossActivationStatus.APPROVED) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "ACTIVATION_PENDING", "Hisob hali tasdiqlanmagan");
         }
 
-        Long farmId = user.getFarmId();
-        if (farmId == null && user.getRole() == Role.CLIENT) {
-            Client client = clientRepository.findByUserId(user.getId()).orElse(null);
-            if (client != null) farmId = client.getFarmId();
-        }
-
+        Long farmId = resolveFarmId(user);
         String userIdentifier = user.getUsername() != null && !user.getUsername().isBlank()
                 ? user.getUsername() : user.getPhone();
         String newAccessToken = jwtTokenProvider.generateAccessToken(userId, userIdentifier, user.getRole(), farmId);
-        String newRefreshToken = jwtTokenProvider.generateRefreshToken(userId);
+        String newRefreshToken = refreshTokenService.issue(userId);
 
         return AuthResponse.builder()
                 .accessToken(newAccessToken)
                 .refreshToken(newRefreshToken)
                 .userId(user.getId())
                 .fullName(user.getFullName())
+                .phone(user.getPhone())
                 .role(user.getRole())
                 .farmId(farmId)
                 .status(user.getStatus())
+                .activationStatus(user.getActivationStatus())
                 .build();
     }
 
+    /**
+     * Logout (BE-07): refresh token bazada bekor qilinadi, takroriy chaqiruv xatosiz o'tadi.
+     * Foydalanuvchi aniqlansa — qurilma (FCM) tokeni va online holati o'chiriladi.
+     */
     @Transactional
     public void logout(LogoutRequest request) {
         Long currentUserId = SecurityUtils.getCurrentUserId();
 
-        // 1. Agar refresh token uzatilgan bo'lsa, uni Redis'da blacklist qilamiz
         if (request != null && request.getRefreshToken() != null && !request.getRefreshToken().isBlank()) {
-            try {
-                String token = request.getRefreshToken().trim();
-                // 30 kunlik muddat bilan blacklist qilamiz
-                redisTemplate.opsForValue().set("blacklist:refresh:" + token, "revoked", 30, TimeUnit.DAYS);
-
-                if (currentUserId == null && jwtTokenProvider.validateToken(token)) {
-                    Claims claims = jwtTokenProvider.getClaimsFromToken(token);
-                    currentUserId = Long.parseLong(claims.getSubject());
-                }
-            } catch (Exception e) {
-                // Redis offline bo'lsa ham xatolik bermaslik
+            Optional<Long> owner = refreshTokenService.revoke(request.getRefreshToken());
+            if (currentUserId == null) {
+                currentUserId = owner.orElse(null);
             }
         }
 
-        // 2. Foydalanuvchining (ayniqsa kuryerning) FCM tokeni va Online holatini o'chirish
         if (currentUserId != null) {
             try {
                 redisTemplate.delete("courier:online:" + currentUserId);
                 redisTemplate.delete("courier:fcm:" + currentUserId);
             } catch (Exception e) {
-                // Redis logs
+                log.warn("Logout: Redis'dan qurilma tokenini o'chirib bo'lmadi: {}", e.getMessage());
             }
         }
     }

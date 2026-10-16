@@ -36,6 +36,13 @@ public class Product {
     @Builder.Default
     private BigDecimal depositPrice = BigDecimal.ZERO;
 
+    @Column(name = "is_returnable", nullable = false)
+    @Builder.Default
+    private boolean isReturnable = false;
+
+    @Column(name = "tara_price", precision = 14, scale = 2)
+    private BigDecimal taraPrice;
+
     @Column(name = "image_url", length = 500)
     private String imageUrl;
 

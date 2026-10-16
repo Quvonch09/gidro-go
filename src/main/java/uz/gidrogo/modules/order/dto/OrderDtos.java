@@ -37,6 +37,28 @@ public class OrderDtos {
     }
 
     @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CartQuoteResponse {
+        private BigDecimal productsSum;
+        private List<TaraLineDto> taraLines;
+        private BigDecimal totalSum;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TaraLineDto {
+        private Long productId;
+        private String productName;
+        private Integer qty;
+        private BigDecimal unitPrice;
+        private BigDecimal sum;
+    }
+
+    @Data
     @NoArgsConstructor
     @AllArgsConstructor
     public static class CartItemDto {
@@ -109,10 +131,45 @@ public class OrderDtos {
         private BigDecimal depositAmount;
         private String clientComment;
         private List<OrderItemResponse> items;
+        private Integer deliverySequence;
+        private Long anchorOrderId;
+        private String preparingReason;
+        private Instant preparingSince;
+        private Integer dispatchAttempts;
+        private BigDecimal productsSum;
+        private Integer taraQtyEstimated;
+        private Integer taraQtyFinal;
+        private BigDecimal taraSum;
+        private List<OrderBottleDetailDto> bottles;
+        private List<String> warnings;
         private Instant assignedAt;
         private Instant deliveredAt;
         private Instant completedAt;
         private Instant createdAt;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OrderBottleDetailDto {
+        private Long productId;
+        private String productName;
+        private int fullQty;
+        private int expectedEmptyQty;
+        private int taraQtyEstimated;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class DeliverResponse {
+        private Long orderId;
+        private String status;
+        private Integer taraQtyFinal;
+        private BigDecimal taraSum;
+        private BigDecimal totalSum;
     }
 
     @Data

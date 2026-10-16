@@ -219,10 +219,10 @@ public class CourierController {
     }
 
     @GetMapping("/stock")
-    @Operation(summary = "Dastavkachi mashinasidagi joriy zaxira")
-    public ResponseEntity<ApiResponse<List<StockItemResponse>>> getMyVehicleStock() {
+    @Operation(summary = "Dastavkachi mashinasidagi joriy zaxira (jami, band va mavjud qoldiq)")
+    public ResponseEntity<ApiResponse<CourierStockResponse>> getMyVehicleStock() {
         Long courierId = SecurityUtils.getCurrentUserId();
-        return ResponseEntity.ok(ApiResponse.ok(stockService.getVehicleStock(courierId)));
+        return ResponseEntity.ok(ApiResponse.ok(stockService.getCourierVehicleStock(courierId)));
     }
 
     @GetMapping("/stock/history")

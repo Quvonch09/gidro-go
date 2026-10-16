@@ -51,6 +51,7 @@ public class JwtTokenProvider {
         Date expiryDate = new Date(now.getTime() + refreshTokenExpirationMs);
 
         return Jwts.builder()
+                .id(java.util.UUID.randomUUID().toString()) // har bir token noyob (bazada xesh bo'yicha saqlanadi)
                 .subject(String.valueOf(userId))
                 .claim("type", "REFRESH")
                 .issuedAt(now)
