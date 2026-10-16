@@ -336,8 +336,13 @@ public class ClientService {
     }
 
     public List<CrmClientResponse> getCrmClients(Long farmId) {
+        return getCrmClients(farmId, null, null, null);
+    }
+
+    public List<CrmClientResponse> getCrmClients(Long farmId, String search, String status, String segment) {
         List<Client> clients = clientRepository.findAllByFarmId(farmId);
         List<CrmClientResponse> response = new ArrayList<>();
+        Instant thirtyDaysAgo = Instant.now().minus(30, java.time.temporal.ChronoUnit.DAYS);
 
         for (Client client : clients) {
             User user = userRepository.findById(client.getUserId()).orElse(null);
@@ -352,20 +357,57 @@ public class ClientService {
                     .findFirst()
                     .orElse(addresses.isEmpty() ? null : addresses.get(0).getAddress());
 
+            String clientStatus = (user != null && "BLOCKED".equalsIgnoreCase(user.getStatus())) ? "INACTIVE" : "ACTIVE";
+            if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
+                if (!status.equalsIgnoreCase(clientStatus)) continue;
+            }
+
+            String clientSegment;
+            if (totalOrders >= 5 || (totalSpent != null && totalSpent.compareTo(BigDecimal.valueOf(200000)) >= 0)) {
+                clientSegment = "VIP";
+            } else if (lastOrderAt != null && lastOrderAt.isAfter(thirtyDaysAgo)) {
+                clientSegment = "ACTIVE";
+            } else if (totalOrders > 0 && (lastOrderAt == null || lastOrderAt.isBefore(thirtyDaysAgo))) {
+                clientSegment = "CHURN";
+            } else {
+                clientSegment = "NEW";
+            }
+            if (segment != null && !segment.isBlank() && !"ALL".equalsIgnoreCase(segment)) {
+                if (!segment.equalsIgnoreCase(clientSegment)) continue;
+            }
+
+            String fullName = user != null ? user.getFullName() : "Noma'lum";
+            String phone = user != null ? user.getPhone() : "-";
+            if (search != null && !search.isBlank()) {
+                String q = search.trim().toLowerCase(java.util.Locale.ROOT);
+                String digits = search.replaceAll("[^0-9]", "");
+                boolean nameMatch = fullName.toLowerCase(java.util.Locale.ROOT).contains(q);
+                boolean phoneMatch = phone.toLowerCase(java.util.Locale.ROOT).contains(q) || (digits.length() >= 3 && phone.replaceAll("[^0-9]", "").contains(digits));
+                boolean addrMatch = primaryAddress != null && primaryAddress.toLowerCase(java.util.Locale.ROOT).contains(q);
+                if (!nameMatch && !phoneMatch && !addrMatch) continue;
+            }
+
             response.add(CrmClientResponse.builder()
                     .clientId(client.getId())
                     .userId(client.getUserId())
-                    .fullName(user != null ? user.getFullName() : "Noma'lum")
-                    .phone(user != null ? user.getPhone() : "-")
+                    .fullName(fullName)
+                    .phone(phone)
                     .registeredAt(client.getCreatedAt())
                     .totalOrders(totalOrders)
                     .totalSpent(totalSpent)
                     .lastOrderAt(lastOrderAt)
                     .primaryAddress(primaryAddress)
+                    .status(clientStatus)
+                    .segment(clientSegment)
                     .build());
         }
 
         return response;
+    }
+
+    public uz.gidrogo.common.PageResponse<CrmClientResponse> getCrmClientsPaged(Long farmId, String search, String status, String segment, int page, int size) {
+        List<CrmClientResponse> all = getCrmClients(farmId, search, status, segment);
+        return uz.gidrogo.common.PageResponse.ofList(all, page, size);
     }
 
     public CrmClientDetailResponse getCrmClientDetail(Long farmId, Long clientId) {

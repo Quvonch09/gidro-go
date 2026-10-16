@@ -44,9 +44,13 @@ public class ManagerController {
 
     @GetMapping("/dashboard")
     @Operation(summary = "Manager operatsion boshqaruv ko'rsatkichlari (tushum, xarajat, buyurtmalar, zaxira, kuryerlar)")
-    public ResponseEntity<ApiResponse<DashboardResponse>> getDashboard() {
+    public ResponseEntity<ApiResponse<DashboardResponse>> getDashboard(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) String period,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(financeService.getDashboard(farmId)));
+        return ResponseEntity.ok(ApiResponse.ok(financeService.getDashboard(farmId, date, period, startDate, endDate)));
     }
 
     @GetMapping("/products")
@@ -209,10 +213,19 @@ public class ManagerController {
     }
 
     @GetMapping("/finance/transactions")
-    @Operation(summary = "Fermaning barcha moliya tranzaksiyalari")
-    public ResponseEntity<ApiResponse<List<TransactionResponse>>> getTransactions() {
+    @Operation(summary = "Fermaning barcha moliya tranzaksiyalari (sana oralig'i, to'lov turi, kuryer va sahifalash bilan)")
+    public ResponseEntity<ApiResponse<?>> getTransactions(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) Long courierId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false, defaultValue = "10") Integer size) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(financeService.getTransactions(farmId)));
+        if (page != null) {
+            return ResponseEntity.ok(ApiResponse.ok(financeService.getTransactionsPaged(farmId, startDate, endDate, type, courierId, page, size)));
+        }
+        return ResponseEntity.ok(ApiResponse.ok(financeService.getTransactions(farmId, startDate, endDate, type, courierId)));
     }
 
     @GetMapping("/couriers/daily-summary")
@@ -231,10 +244,17 @@ public class ManagerController {
     }
 
     @GetMapping("/clients")
-    @Operation(summary = "Fermaning CRM mijozlar bazasi (buyurtmalar soni, sarflagan summasi, so'nggi manzil)")
-    public ResponseEntity<ApiResponse<List<CrmClientResponse>>> getCrmClients() {
+    @Operation(summary = "Fermaning CRM mijozlar bazasi (qidiruv, holat va sahifalash bilan)")
+    public ResponseEntity<ApiResponse<?>> getCrmClients(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false, defaultValue = "10") Integer size) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(clientService.getCrmClients(farmId)));
+        if (page != null) {
+            return ResponseEntity.ok(ApiResponse.ok(clientService.getCrmClientsPaged(farmId, search, status, null, page, size)));
+        }
+        return ResponseEntity.ok(ApiResponse.ok(clientService.getCrmClients(farmId, search, status, null)));
     }
 
     @GetMapping("/clients/{id}")

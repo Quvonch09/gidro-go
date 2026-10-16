@@ -42,4 +42,44 @@ public final class TashkentTime {
     public static Double growthPercent(long current, long previous) {
         return growthPercent(java.math.BigDecimal.valueOf(current), java.math.BigDecimal.valueOf(previous));
     }
+
+    public record DateRange(LocalDate start, LocalDate end) {
+        public Instant startInstant() { return TashkentTime.startOf(start); }
+        public Instant endInstant() { return TashkentTime.endExclusive(end); }
+    }
+
+    /**
+     * period, date, startDate/endDate yoki from/to parametrlarini yagona [start, end] oralig'iga keltiradi.
+     */
+    public static LocalDate[] resolveRange(String period, LocalDate date, LocalDate startDate, LocalDate endDate,
+                                           LocalDate from, LocalDate to) {
+        if (date != null) {
+            return new LocalDate[]{date, date};
+        }
+        LocalDate s = startDate != null ? startDate : from;
+        LocalDate e = endDate != null ? endDate : to;
+        if (s != null || e != null) {
+            if (s == null) s = e;
+            if (e == null) e = s;
+            if (s.isAfter(e)) {
+                LocalDate tmp = s;
+                s = e;
+                e = tmp;
+            }
+            return new LocalDate[]{s, e};
+        }
+        LocalDate today = today();
+        if (period != null && !period.isBlank()) {
+            return switch (period.toLowerCase(java.util.Locale.ROOT).trim()) {
+                case "today", "bugun" -> new LocalDate[]{today, today};
+                case "yesterday", "kecha" -> new LocalDate[]{today.minusDays(1), today.minusDays(1)};
+                case "this_week", "week", "shu hafta", "7days", "7_days" -> new LocalDate[]{today.minusDays(6), today};
+                case "this_month", "month", "shu oy" -> new LocalDate[]{today.withDayOfMonth(1), today};
+                case "quarter", "chorak" -> new LocalDate[]{today.minusMonths(3).plusDays(1), today};
+                case "this_year", "year", "shu yil" -> new LocalDate[]{today.withDayOfYear(1), today};
+                default -> new LocalDate[]{today.minusDays(29), today};
+            };
+        }
+        return new LocalDate[]{today.minusDays(29), today};
+    }
 }

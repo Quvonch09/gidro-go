@@ -38,9 +38,10 @@ public class SuperAdminDtos {
         private long completedOrders;
         private long cancelledOrders;
         private long returnedOrders;
-        /** Tanlangan davr (standart: oxirgi 30 kun) va o'sish (oldingi teng davrga nisbatan). Global tushum yo'q (TZ §5.5). */
         private PeriodStats period;
         private Growth growth;
+        /** Tanlangan davrdagi o'sish foizi (growthRate) */
+        private Double growthRate;
     }
 
     @Data
@@ -221,6 +222,8 @@ public class SuperAdminDtos {
         private JsonNode metadata;
         private String ipAddress;
         private String userAgent;
+        /** Natija: SUCCESS | FAILED | WARNING */
+        private String status;
         private Instant createdAt;
     }
 

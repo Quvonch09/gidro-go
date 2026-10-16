@@ -103,6 +103,11 @@ public class SuperAdminService {
         long newFarms = countFarmsCreated(curFrom, curTo);
         long newFarmsPrev = countFarmsCreated(prevFrom, curFrom);
 
+        Double ordersPercent = TashkentTime.growthPercent(periodOrders, periodOrdersPrev);
+        Double clientsPercent = TashkentTime.growthPercent(newClients, newClientsPrev);
+        Double farmsPercent = TashkentTime.growthPercent(newFarms, newFarmsPrev);
+        Double growthRate = ordersPercent != null ? ordersPercent : (clientsPercent != null ? clientsPercent : 0.0);
+
         return DashboardResponse.builder()
                 .totalFarms(farmRepository.count())
                 .activeFarms(farmRepository.countByStatus(FarmStatus.ACTIVE))
@@ -126,10 +131,11 @@ public class SuperAdminService {
                         .newFarms(newFarms)
                         .build())
                 .growth(Growth.builder()
-                        .clientsPercent(TashkentTime.growthPercent(newClients, newClientsPrev))
-                        .ordersPercent(TashkentTime.growthPercent(periodOrders, periodOrdersPrev))
-                        .farmsPercent(TashkentTime.growthPercent(newFarms, newFarmsPrev))
+                        .clientsPercent(clientsPercent)
+                        .ordersPercent(ordersPercent)
+                        .farmsPercent(farmsPercent)
                         .build())
+                .growthRate(growthRate)
                 .build();
     }
 
@@ -463,16 +469,47 @@ public class SuperAdminService {
     // 3. AUDIT LOG (BE-12)
     // ==========================================
 
-    public PageResponse<AuditLogItem> getAuditLogs(Collection<String> actions, String entityType, LocalDate from, LocalDate to,
+    public PageResponse<AuditLogItem> getAuditLogs(Collection<String> actions, String entityType, String status,
+                                                   LocalDate from, LocalDate to,
                                                    String search, int page, int size, String sort) {
         Pageable pageable = PageResponse.pageable(page, size, sort, AUDIT_SORT_FIELDS, Sort.by(Sort.Direction.DESC, "createdAt"));
-        List<String> actionList = actions == null ? List.of() : actions.stream()
+        List<String> rawActions = actions == null ? List.of() : actions.stream()
                 .filter(Objects::nonNull)
                 .flatMap(a -> Arrays.stream(a.split(",")))
                 .map(String::trim)
                 .filter(a -> !a.isEmpty())
                 .map(a -> a.toUpperCase(Locale.ROOT))
                 .toList();
+
+        List<String> actionList = new ArrayList<>();
+        for (String act : rawActions) {
+            switch (act) {
+                case "LOGIN" -> {
+                    actionList.add("AUTH_LOGIN");
+                    actionList.add("AUTH_LOGOUT");
+                    actionList.add("AUTH_REFRESH");
+                    actionList.add("LOGIN");
+                }
+                case "FERMA_TIZIMI" -> {
+                    actionList.add("FARM_CREATED");
+                    actionList.add("FARM_UPDATED");
+                    actionList.add("FARM_STATUS_CHANGED");
+                    actionList.add("FARM_BLOCKED");
+                }
+                case "STATUS_OZGARTIRISH" -> {
+                    actionList.add("FARM_STATUS_CHANGED");
+                    actionList.add("BOSS_STATUS_CHANGED");
+                    actionList.add("CLIENT_BLOCKED");
+                    actionList.add("CLIENT_ACTIVATED");
+                }
+                case "XAVFSIZLIK" -> {
+                    actionList.add("PASSWORD_CHANGED");
+                    actionList.add("BOSS_UPDATED");
+                    actionList.add("SETTINGS_UPDATED");
+                }
+                default -> actionList.add(act);
+            }
+        }
 
         Specification<SuperAdminAuditLog> spec = (root, q, cb) -> {
             List<Predicate> ps = new ArrayList<>();
@@ -513,8 +550,14 @@ public class SuperAdminService {
                 .metadata(parseMetadata(log.getMetadata()))
                 .ipAddress(log.getIpAddress())
                 .userAgent(log.getUserAgent())
+                .status("SUCCESS")
                 .createdAt(log.getCreatedAt())
                 .build());
+    }
+
+    public PageResponse<AuditLogItem> getAuditLogs(Collection<String> actions, String entityType, LocalDate from, LocalDate to,
+                                                   String search, int page, int size, String sort) {
+        return getAuditLogs(actions, entityType, null, from, to, search, page, size, sort);
     }
 
     // ==========================================

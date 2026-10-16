@@ -84,5 +84,16 @@ public class FinanceDtos {
         private Double ordersChangePercent;
         private Double clientsChangePercent;
         private List<uz.gidrogo.modules.order.dto.OrderDtos.OrderResponse> recentOrders;
+        // Tanlangan davr/sana bo'yicha ko'rsatkichlar
+        private String period;
+        private String date;
+        private String startDate;
+        private String endDate;
+        private BigDecimal periodIncome;
+        private BigDecimal periodExpense;
+        private BigDecimal periodProfit;
+        private long periodOrders;
+        private long periodDelivered;
+        private Double growthRate;
     }
 }

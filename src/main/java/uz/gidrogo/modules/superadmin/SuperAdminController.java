@@ -42,13 +42,15 @@ public class SuperAdminController {
     // ==========================================
 
     @GetMapping("/dashboard")
-    @Operation(summary = "Global operatsion KPI + tanlangan davr va o'sish % (oldingi teng davrga nisbatan). Global tushum yo'q (TZ §5.5)")
+    @Operation(summary = "Global operatsion KPI + tanlangan davr va o'sish % (growthRate). Global tushum yo'q (TZ §5.5)")
     public ResponseEntity<ApiResponse<DashboardResponse>> getDashboard(
+            @Parameter(description = "today, this_week, this_month, this_year") @RequestParam(required = false) String period,
             @Parameter(description = "Davr boshi (standart: to − 29 kun)") @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @Parameter(description = "Davr oxiri (standart: bugun)") @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @Parameter(deprecated = true) @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @Parameter(deprecated = true) @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
-        return ResponseEntity.ok(ApiResponse.ok(superAdminService.getDashboard(first(from, startDate), first(to, endDate))));
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        LocalDate[] range = uz.gidrogo.common.TashkentTime.resolveRange(period, null, startDate, endDate, from, to);
+        return ResponseEntity.ok(ApiResponse.ok(superAdminService.getDashboard(range[0], range[1])));
     }
 
     @GetMapping("/statistics/growth")
@@ -63,13 +65,17 @@ public class SuperAdminController {
     @GetMapping("/statistics/regions")
     @Operation(summary = "Hududlar (farms.city) bo'yicha: faol/bloklangan/nofaol fermalar, davrdagi buyurtmalar va o'sish %")
     public ResponseEntity<ApiResponse<RegionalDistributionResponse>> getRegionalDistribution(
+            @Parameter(description = "month, quarter, year") @RequestParam(required = false) String period,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @Parameter(deprecated = true) @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @Parameter(deprecated = true) @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
-            @Parameter(description = "Hudud nomi (farms.city)") @RequestParam(required = false) String region) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @Parameter(description = "Hudud nomi (farms.city)") @RequestParam(required = false) String region,
+            @Parameter(description = "Hudud ID yoki nomi") @RequestParam(required = false) String regionId) {
+        LocalDate[] range = uz.gidrogo.common.TashkentTime.resolveRange(period, null, startDate, endDate, from, to);
+        String targetRegion = region != null && !region.isBlank() ? region : regionId;
         return ResponseEntity.ok(ApiResponse.ok(
-                superAdminService.getRegionalDistribution(first(from, startDate), first(to, endDate), region)));
+                superAdminService.getRegionalDistribution(range[0], range[1], targetRegion)));
     }
 
     @GetMapping("/statistics/orders-by-status")
@@ -147,10 +153,12 @@ public class SuperAdminController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) FarmStatus status,
             @Parameter(description = "Hudud (farms.city)") @RequestParam(required = false) String region,
+            @Parameter(description = "Hudud ID yoki nomi") @RequestParam(required = false) String regionId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @Parameter(description = "id | name | createdAt | status | city") @RequestParam(required = false) String sort) {
-        return ResponseEntity.ok(ApiResponse.ok(farmService.getFarms(search, status, region, page, size, sort)));
+        String targetRegion = region != null && !region.isBlank() ? region : regionId;
+        return ResponseEntity.ok(ApiResponse.ok(farmService.getFarms(search, status, targetRegion, page, size, sort)));
     }
 
     @GetMapping("/farms/{id}")
@@ -187,15 +195,19 @@ public class SuperAdminController {
     @Operation(summary = "Boss tasdiqlash so'rovlari (arxiv bilan) va summary {pending, approved, rejected}")
     public ResponseEntity<ApiResponse<ActivationRequestPage>> getActivationRequests(
             @Parameter(description = "PENDING | APPROVED | REJECTED (bo'sh — barchasi)") @RequestParam(required = false) ActivationStatus status,
+            @Parameter(description = "today, this_week, this_month, this_year") @RequestParam(required = false) String period,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @Parameter(deprecated = true) @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @Parameter(deprecated = true) @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @Parameter(description = "requestedAt | decidedAt | id") @RequestParam(required = false) String sort) {
+        LocalDate[] range = (period != null || startDate != null || endDate != null || from != null || to != null)
+                ? uz.gidrogo.common.TashkentTime.resolveRange(period, null, startDate, endDate, from, to)
+                : new LocalDate[]{null, null};
         return ResponseEntity.ok(ApiResponse.ok(farmService.getActivationRequests(
-                status, first(from, startDate), first(to, endDate), page, size, sort)));
+                status, range[0], range[1], page, size, sort)));
     }
 
     @PostMapping("/activation-requests/{id}/decision")
@@ -211,20 +223,24 @@ public class SuperAdminController {
     // ==========================================
 
     @GetMapping("/audit-log")
-    @Operation(summary = "Audit Log: action (bir nechta), entityType, from/to, search (metadata, amal, bajaruvchi ismi), sahifalash")
+    @Operation(summary = "Audit Log: action (bir nechta), entityType, status, from/to, search, sahifalash")
     public ResponseEntity<ApiResponse<PageResponse<AuditLogItem>>> getAuditLog(
             @Parameter(description = "Masalan: action=FARM_BLOCKED&action=BOSS_UPDATED yoki vergul bilan") @RequestParam(required = false) List<String> action,
             @RequestParam(required = false) String entityType,
+            @Parameter(description = "Natija: SUCCESS | FAILED | WARNING") @RequestParam(required = false) String status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @Parameter(deprecated = true) @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @Parameter(deprecated = true) @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "createdAt | action | id") @RequestParam(required = false) String sort) {
+        LocalDate[] range = (startDate != null || endDate != null || from != null || to != null)
+                ? uz.gidrogo.common.TashkentTime.resolveRange(null, null, startDate, endDate, from, to)
+                : new LocalDate[]{null, null};
         return ResponseEntity.ok(ApiResponse.ok(superAdminService.getAuditLogs(
-                action, entityType, first(from, startDate), first(to, endDate), search, page, size, sort)));
+                action, entityType, status, range[0], range[1], search, page, size, sort)));
     }
 
     // ==========================================

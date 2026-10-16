@@ -12,6 +12,7 @@ import uz.gidrogo.common.SecurityUtils;
 import uz.gidrogo.modules.cash.CashDtos.*;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -80,9 +81,13 @@ public class CashController {
     @GetMapping("/api/manager/cash/handovers")
     @Operation(summary = "Fermadagi kassa topshirishlar tarixi va holati")
     public ResponseEntity<ApiResponse<List<CashHandoverResponse>>> getManagerHandovers(
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long courierId,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate endDate) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(cashService.getFarmHandovers(farmId, status)));
+        return ResponseEntity.ok(ApiResponse.ok(cashService.getFarmHandovers(farmId, status, courierId, date, startDate, endDate)));
     }
 
     // ── Boss Endpoints ───────────────────────────────────────────────────────

@@ -162,9 +162,15 @@ public class BossService {
     // ==========================================
     /** BE-01: sotuv va tushum faqat COMPLETED buyurtmalardan; zaxira — ombordagi haqiqiy qoldiq. */
     public List<ProductSalesSummaryResponse> getProductsSalesSummary(Long farmId) {
+        return getProductsSalesSummary(farmId, null, null, null);
+    }
+
+    public List<ProductSalesSummaryResponse> getProductsSalesSummary(Long farmId, String period, LocalDate startDate, LocalDate endDate) {
         Long targetFarmId = resolveFarmId(farmId);
-        LocalDate today = uz.gidrogo.common.TashkentTime.today();
-        return farmAnalyticsService.productPerformance(targetFarmId, LocalDate.of(2000, 1, 1), today).stream()
+        LocalDate[] range = (period != null || startDate != null || endDate != null)
+                ? uz.gidrogo.common.TashkentTime.resolveRange(period, null, startDate, endDate, null, null)
+                : new LocalDate[]{LocalDate.of(2000, 1, 1), uz.gidrogo.common.TashkentTime.today()};
+        return farmAnalyticsService.productPerformance(targetFarmId, range[0], range[1]).stream()
                 .map(p -> ProductSalesSummaryResponse.builder()
                         .productId(p.getProductId())
                         .name(p.getName())
@@ -284,9 +290,19 @@ public class BossService {
     // 7. XODIMLAR MONITORINGI SUMMARY (Image 4 /boss/xodimlar)
     // ==========================================
     public StaffSummaryResponse getStaffSummary(Long farmId) {
+        return getStaffSummary(farmId, null, null);
+    }
+
+    public StaffSummaryResponse getStaffSummary(Long farmId, String period, String roleFilter) {
         Long targetFarmId = resolveFarmId(farmId);
         List<User> staff = userRepository.findAllByFarmId(targetFarmId).stream()
                 .filter(u -> u.getRole() == Role.MANAGER || u.getRole() == Role.COURIER)
+                .filter(u -> {
+                    if (roleFilter != null && !roleFilter.isBlank() && !"ALL".equalsIgnoreCase(roleFilter) && !"BARCHASI".equalsIgnoreCase(roleFilter)) {
+                        return u.getRole().name().equalsIgnoreCase(roleFilter.trim());
+                    }
+                    return true;
+                })
                 .toList();
 
         long managers = staff.stream().filter(u -> u.getRole() == Role.MANAGER).count();

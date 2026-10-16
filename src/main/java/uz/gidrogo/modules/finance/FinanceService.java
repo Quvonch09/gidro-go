@@ -152,15 +152,78 @@ public class FinanceService {
                 .totalClients(totalClients)
                 .incomeChangePercent(TashkentTime.growthPercent(revCur.revenue(), revPrev.revenue()))
                 .ordersChangePercent(TashkentTime.growthPercent(ordersCur, ordersPrev))
-                .clientsChangePercent(TashkentTime.growthPercent(clientsCur, clientsPrev))
+                 .clientsChangePercent(TashkentTime.growthPercent(clientsCur, clientsPrev))
                 .recentOrders(recentOrders)
                 .build();
     }
 
+    public DashboardResponse getDashboard(Long farmId, LocalDate date, String period, LocalDate startDate, LocalDate endDate) {
+        LocalDate[] range = TashkentTime.resolveRange(period, date, startDate, endDate, null, null);
+        LocalDate start = range[0];
+        LocalDate end = range[1];
+        Instant curStart = TashkentTime.startOf(start);
+        Instant curEnd = TashkentTime.endExclusive(end);
+
+        long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1;
+        LocalDate prevEnd = start.minusDays(1);
+        LocalDate prevStart = prevEnd.minusDays(daysBetween - 1);
+        Instant prevFrom = TashkentTime.startOf(prevStart);
+        Instant prevTo = TashkentTime.endExclusive(prevEnd);
+
+        RevenueService.Totals periodTotals = revenueService.totals(farmId, curStart, curEnd);
+        BigDecimal periodExpense = revenueService.expenses(farmId, curStart, curEnd);
+        BigDecimal periodProfit = revenueService.profit(periodTotals, periodExpense);
+        long periodOrders = orderRepository.countByFarmIdSince(farmId, curStart);
+        long periodDelivered = orderRepository.countCompletedByFarmSince(farmId, curStart);
+
+        RevenueService.Totals prevTotals = revenueService.totals(farmId, prevFrom, prevTo);
+        Double growthRate = TashkentTime.growthPercent(periodTotals.revenue(), prevTotals.revenue());
+
+        DashboardResponse base = getDashboard(farmId);
+        base.setPeriod(period != null ? period : (date != null ? "custom_date" : "custom_range"));
+        base.setDate(date != null ? date.toString() : null);
+        base.setStartDate(start.toString());
+        base.setEndDate(end.toString());
+        base.setPeriodIncome(periodTotals.revenue());
+        base.setPeriodExpense(periodExpense);
+        base.setPeriodProfit(periodProfit);
+        base.setPeriodOrders(periodOrders);
+        base.setPeriodDelivered(periodDelivered);
+        base.setGrowthRate(growthRate != null ? growthRate : base.getIncomeChangePercent());
+        return base;
+    }
+
     public List<TransactionResponse> getTransactions(Long farmId) {
+        return getTransactions(farmId, null, null, null, null);
+    }
+
+    public List<TransactionResponse> getTransactions(Long farmId, LocalDate startDate, LocalDate endDate,
+                                                     String type, Long courierId) {
+        Instant from = startDate != null ? TashkentTime.startOf(startDate) : null;
+        Instant to = endDate != null ? TashkentTime.endExclusive(endDate) : null;
+
         return financeRepository.findAllByFarmIdOrderByCreatedAtDesc(farmId).stream()
+                .filter(tx -> {
+                    if (from != null && tx.getCreatedAt().isBefore(from)) return false;
+                    if (to != null && tx.getCreatedAt().isAfter(to)) return false;
+                    if (courierId != null && !courierId.equals(tx.getCourierId())) return false;
+                    if (type != null && !type.isBlank() && !"ALL".equalsIgnoreCase(type)) {
+                        String t = type.trim().toUpperCase(java.util.Locale.ROOT);
+                        boolean typeMatch = tx.getType() != null && tx.getType().equalsIgnoreCase(t);
+                        boolean catMatch = tx.getCategory() != null && tx.getCategory().toUpperCase().contains(t);
+                        boolean noteMatch = tx.getNote() != null && tx.getNote().toUpperCase().contains(t);
+                        if (!typeMatch && !catMatch && !noteMatch) return false;
+                    }
+                    return true;
+                })
                 .map(this::mapToResponse)
                 .toList();
+    }
+
+    public uz.gidrogo.common.PageResponse<TransactionResponse> getTransactionsPaged(Long farmId, LocalDate startDate, LocalDate endDate,
+                                                                                   String type, Long courierId, int page, int size) {
+        List<TransactionResponse> filtered = getTransactions(farmId, startDate, endDate, type, courierId);
+        return uz.gidrogo.common.PageResponse.ofList(filtered, page, size);
     }
 
     public List<TransactionResponse> getCourierTransactions(Long farmId, Long courierId) {

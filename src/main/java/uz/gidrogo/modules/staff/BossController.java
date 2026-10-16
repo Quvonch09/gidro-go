@@ -43,9 +43,13 @@ public class BossController {
 
     @GetMapping("/dashboard")
     @Operation(summary = "Boss boshqaruv ko'rsatkichlari (tushum, xarajat, buyurtmalar, zaxira, kuryerlar)")
-    public ResponseEntity<ApiResponse<DashboardResponse>> getDashboard() {
+    public ResponseEntity<ApiResponse<DashboardResponse>> getDashboard(
+            @RequestParam(required = false) String period,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(financeService.getDashboard(farmId)));
+        return ResponseEntity.ok(ApiResponse.ok(financeService.getDashboard(farmId, date, period, startDate, endDate)));
     }
 
     @GetMapping("/farm")
@@ -75,9 +79,12 @@ public class BossController {
 
     @GetMapping("/sales/products-summary")
     @Operation(summary = "Mahsulotlar toifalari bo'yicha sotuv tahlili")
-    public ResponseEntity<ApiResponse<List<BossDtos.ProductSalesSummaryResponse>>> getProductsSalesSummary() {
+    public ResponseEntity<ApiResponse<List<BossDtos.ProductSalesSummaryResponse>>> getProductsSalesSummary(
+            @RequestParam(required = false) String period,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(bossService.getProductsSalesSummary(farmId)));
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getProductsSalesSummary(farmId, period, startDate, endDate)));
     }
 
     @GetMapping("/sales/summary")
@@ -141,9 +148,11 @@ public class BossController {
 
     @GetMapping("/staff/summary")
     @Operation(summary = "Xodimlar va dastavkachilar monitoringi statistikasi (kartochkalar uchun)")
-    public ResponseEntity<ApiResponse<BossDtos.StaffSummaryResponse>> getStaffSummary() {
+    public ResponseEntity<ApiResponse<BossDtos.StaffSummaryResponse>> getStaffSummary(
+            @RequestParam(required = false) String period,
+            @RequestParam(required = false) String role) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(bossService.getStaffSummary(farmId)));
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getStaffSummary(farmId, period, role)));
     }
 
     @PatchMapping("/staff/{id}/status")
@@ -184,10 +193,17 @@ public class BossController {
     }
 
     @GetMapping("/clients")
-    @Operation(summary = "Fermaning barcha mijozlari ro'yxati (CRM)")
-    public ResponseEntity<ApiResponse<List<CrmClientResponse>>> getCrmClients() {
+    @Operation(summary = "Fermaning barcha mijozlari ro'yxati (CRM, qidiruv, segment va sahifalash bilan)")
+    public ResponseEntity<ApiResponse<?>> getCrmClients(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String segment,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false, defaultValue = "10") Integer size) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(clientService.getCrmClients(farmId)));
+        if (page != null) {
+            return ResponseEntity.ok(ApiResponse.ok(clientService.getCrmClientsPaged(farmId, search, null, segment, page, size)));
+        }
+        return ResponseEntity.ok(ApiResponse.ok(clientService.getCrmClients(farmId, search, null, segment)));
     }
 
     @GetMapping("/clients/{id}")

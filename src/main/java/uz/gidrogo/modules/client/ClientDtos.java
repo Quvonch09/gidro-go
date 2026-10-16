@@ -91,6 +91,8 @@ public class ClientDtos {
         private BigDecimal totalSpent;
         private java.time.Instant lastOrderAt;
         private String primaryAddress;
+        private String status; // ACTIVE / INACTIVE
+        private String segment; // VIP, ACTIVE, CHURN, NEW
     }
 
     @Data

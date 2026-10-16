@@ -303,15 +303,28 @@ public class CashService {
 
     @Transactional(readOnly = true)
     public List<CashHandoverResponse> getFarmHandovers(Long farmId, String status) {
-        List<CashHandover> list;
-        if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
-            list = handoverRepository.findAllByFarmIdAndStatusOrderByCreatedAtDesc(farmId, status.toUpperCase());
-        } else {
-            list = handoverRepository.findAllByFarmIdOrderByCreatedAtDesc(farmId);
-        }
+        return getFarmHandovers(farmId, status, null, null, null, null);
+    }
 
+    @Transactional(readOnly = true)
+    public List<CashHandoverResponse> getFarmHandovers(Long farmId, String status, Long courierId,
+                                                      LocalDate date, LocalDate startDate, LocalDate endDate) {
+        LocalDate[] range = (date != null || startDate != null || endDate != null)
+                ? uz.gidrogo.common.TashkentTime.resolveRange(null, date, startDate, endDate, null, null)
+                : new LocalDate[]{null, null};
+        Instant from = range[0] != null ? uz.gidrogo.common.TashkentTime.startOf(range[0]) : null;
+        Instant to = range[1] != null ? uz.gidrogo.common.TashkentTime.endExclusive(range[1]) : null;
+
+        List<CashHandover> list = handoverRepository.findAllByFarmIdOrderByCreatedAtDesc(farmId);
         List<CashHandoverResponse> resp = new ArrayList<>();
         for (CashHandover h : list) {
+            if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
+                if (!status.equalsIgnoreCase(h.getStatus())) continue;
+            }
+            if (courierId != null && !courierId.equals(h.getCourierId())) continue;
+            if (from != null && h.getCreatedAt().isBefore(from)) continue;
+            if (to != null && h.getCreatedAt().isAfter(to)) continue;
+
             User c = userRepository.findById(h.getCourierId()).orElse(null);
             User m = h.getManagerId() != null ? userRepository.findById(h.getManagerId()).orElse(null) : null;
             resp.add(mapToResponse(h, c != null ? c.getFullName() : null, m != null ? m.getFullName() : null));
