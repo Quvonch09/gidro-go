@@ -27,6 +27,8 @@ public class StaffDtos {
 
         @NotNull(message = "Rol (MANAGER yoki COURIER) kiritilishi shart")
         private Role role;
+
+        private String shiftType; // DAY, NIGHT, FULL_TIME
     }
 
     @Data
@@ -48,6 +50,7 @@ public class StaffDtos {
         private String phone;
         private Role role;
         private String status;
+        private String shiftType;
         private Instant createdAt;
     }
 }

@@ -43,6 +43,7 @@ public class StaffService {
                 .fullName(request.getFullName())
                 .phone(request.getPhone())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .shiftType(request.getShiftType() != null && !request.getShiftType().isBlank() ? request.getShiftType().trim() : "DAY")
                 .status("ACTIVE")
                 .build();
 
@@ -116,6 +117,7 @@ public class StaffService {
                 .phone(user.getPhone())
                 .role(user.getRole())
                 .status(user.getStatus())
+                .shiftType(user.getShiftType())
                 .createdAt(user.getCreatedAt())
                 .build();
     }

@@ -72,9 +72,11 @@ public class BossController {
     @GetMapping("/finance/chart")
     @Operation(summary = "Moliyaviy ko'rsatkichlar dinamikasi grafigi (vaqt bo'yicha saralangan)")
     public ResponseEntity<ApiResponse<List<BossDtos.FinanceChartItem>>> getFinanceChart(
-            @RequestParam(required = false, defaultValue = "week") String period) {
+            @RequestParam(required = false, defaultValue = "week") String period,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(bossService.getFinanceChart(farmId, period)));
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getFinanceChart(farmId, period, startDate, endDate)));
     }
 
     @GetMapping("/sales/products-summary")
@@ -116,10 +118,15 @@ public class BossController {
     }
 
     @GetMapping("/orders/today")
-    @Operation(summary = "Faqat bugungi buyurtmalar ro'yxati")
+    @Operation(summary = "Bugungi so'nggi buyurtmalar monitoringi (Mini jadval)")
     public ResponseEntity<ApiResponse<List<OrderResponse>>> getTodayOrders(
-            @RequestParam(required = false) OrderStatus status) {
-        return ResponseEntity.ok(ApiResponse.ok(orderService.getManagerOrders(status, true, null, null, null, false)));
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) Integer limit) {
+        List<OrderResponse> orders = orderService.getManagerOrders(status, true, null, null, null, false);
+        if (limit != null && limit > 0) {
+            orders = orders.stream().limit(limit).toList();
+        }
+        return ResponseEntity.ok(ApiResponse.ok(orders));
     }
 
     @GetMapping("/orders/all")
@@ -163,6 +170,13 @@ public class BossController {
         return ResponseEntity.ok(ApiResponse.ok(staffService.updateStaffStatus(id, request.getStatus())));
     }
 
+    @GetMapping("/staff/{id}")
+    @Operation(summary = "Xodim ma'lumotini to'g'ridan-to'g'ri ID orqali olish")
+    public ResponseEntity<ApiResponse<BossDtos.EnhancedStaffItemResponse>> getStaffById(@PathVariable Long id) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok(bossService.getStaffById(farmId, id)));
+    }
+
     @DeleteMapping("/staff/{id}")
     @Operation(summary = "Xodimni o'chirish (Kassa balansi 0 dan katta bo'lsa 409 CASH_BALANCE_NOT_ZERO)")
     public ResponseEntity<ApiResponse<String>> deleteStaff(@PathVariable Long id) {
@@ -172,9 +186,44 @@ public class BossController {
 
     @GetMapping("/finance/summary")
     @Operation(summary = "Ferma moliyaviy ko'rsatkichlarini kuzatish")
-    public ResponseEntity<ApiResponse<FinanceSummaryResponse>> getFinanceSummary(@RequestParam(required = false, defaultValue = "month") String period) {
+    public ResponseEntity<ApiResponse<FinanceSummaryResponse>> getFinanceSummary(
+            @RequestParam(required = false, defaultValue = "month") String period,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(financeService.getSummary(farmId, period)));
+        return ResponseEntity.ok(ApiResponse.ok(financeService.getSummary(farmId, period, date, startDate, endDate)));
+    }
+
+    @GetMapping("/finance/transactions")
+    @Operation(summary = "Boss uchun barcha moliya tranzaksiyalari (sana oralig'i, to'lov turi, kuryer va sahifalash bilan)")
+    public ResponseEntity<ApiResponse<?>> getTransactions(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) Long courierId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false, defaultValue = "10") Integer size) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        if (page != null) {
+            return ResponseEntity.ok(ApiResponse.ok(financeService.getTransactionsPaged(farmId, startDate, endDate, type, courierId, page, size)));
+        }
+        return ResponseEntity.ok(ApiResponse.ok(financeService.getTransactions(farmId, startDate, endDate, type, courierId)));
+    }
+
+    @GetMapping("/finance/expenses")
+    @Operation(summary = "Boss uchun barcha kiritilgan xarajatlar ro'yxati (sana, kategoriya, summa, kim kiritgani)")
+    public ResponseEntity<ApiResponse<?>> getExpenses(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) Long courierId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false, defaultValue = "10") Integer size) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        if (page != null) {
+            return ResponseEntity.ok(ApiResponse.ok(financeService.getTransactionsPaged(farmId, startDate, endDate, "EXPENSE", courierId, page, size)));
+        }
+        return ResponseEntity.ok(ApiResponse.ok(financeService.getTransactions(farmId, startDate, endDate, "EXPENSE", courierId)));
     }
 
     @GetMapping("/couriers/daily-summary")

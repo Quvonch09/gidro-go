@@ -211,6 +211,7 @@ public class BossDtos {
         private String vehicleModel;
         private String vehiclePlateNumber;
         private String avatarUrl;
+        private String shiftType;
         private Instant createdAt;
     }
 }

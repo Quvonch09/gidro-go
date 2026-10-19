@@ -67,6 +67,9 @@ public class User {
     @Column(name = "passport_serial", length = 50)
     private String passportSerial;
 
+    @Column(name = "shift_type", length = 50)
+    private String shiftType; // DAY, NIGHT, FULL_TIME
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();

@@ -334,23 +334,43 @@ public class CashService {
 
     @Transactional(readOnly = true)
     public BossCashSummaryResponse getBossCashSummary(Long farmId, Instant from, Instant to) {
+        return getBossCashSummary(farmId, null, null, null, null, from, to);
+    }
+
+    @Transactional(readOnly = true)
+    public BossCashSummaryResponse getBossCashSummary(Long farmId, String period, LocalDate date, LocalDate startDate, LocalDate endDate, Instant from, Instant to) {
+        Instant startTime = from;
+        Instant endTime = to;
+        if (startTime == null || endTime == null) {
+            if (period != null || date != null || startDate != null || endDate != null) {
+                LocalDate[] range = uz.gidrogo.common.TashkentTime.resolveRange(period, date, startDate, endDate, null, null);
+                startTime = uz.gidrogo.common.TashkentTime.startOf(range[0]);
+                endTime = uz.gidrogo.common.TashkentTime.endExclusive(range[1]);
+            }
+        }
+
         BigDecimal collected;
         BigDecimal handedOver;
 
-        if (from != null && to != null) {
-            collected = ledgerRepository.sumAmountByFarmIdAndTypeBetween(farmId, "COLLECTED", from, to);
-            handedOver = ledgerRepository.sumAmountByFarmIdAndTypeBetween(farmId, "HANDOVER", from, to);
+        if (startTime != null && endTime != null) {
+            collected = ledgerRepository.sumAmountByFarmIdAndTypeBetween(farmId, "COLLECTED", startTime, endTime);
+            handedOver = ledgerRepository.sumAmountByFarmIdAndTypeBetween(farmId, "HANDOVER", startTime, endTime);
         } else {
             collected = ledgerRepository.sumAmountByFarmIdAndType(farmId, "COLLECTED");
             handedOver = ledgerRepository.sumAmountByFarmIdAndType(farmId, "HANDOVER");
         }
 
+        if (collected == null) collected = BigDecimal.ZERO;
+        if (handedOver == null) handedOver = BigDecimal.ZERO;
+
         BigDecimal remaining = collected.subtract(handedOver);
+        if (remaining.compareTo(BigDecimal.ZERO) < 0) remaining = BigDecimal.ZERO;
 
         List<User> couriers = userRepository.findAllByFarmIdAndRole(farmId, Role.COURIER);
         int activeCouriersWithCash = 0;
         for (User c : couriers) {
-            if (calculateCourierBalance(c.getId()).compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal bal = calculateCourierBalance(c.getId());
+            if (bal != null && bal.compareTo(BigDecimal.ZERO) > 0) {
                 activeCouriersWithCash++;
             }
         }

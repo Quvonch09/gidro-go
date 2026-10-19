@@ -228,6 +228,21 @@ public class ManagerController {
         return ResponseEntity.ok(ApiResponse.ok(financeService.getTransactions(farmId, startDate, endDate, type, courierId)));
     }
 
+    @GetMapping("/finance/expenses")
+    @Operation(summary = "Menejer uchun barcha kiritilgan xarajatlar ro'yxati (sana, kategoriya, summa, kim kiritgani)")
+    public ResponseEntity<ApiResponse<?>> getExpenses(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) Long courierId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false, defaultValue = "10") Integer size) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        if (page != null) {
+            return ResponseEntity.ok(ApiResponse.ok(financeService.getTransactionsPaged(farmId, startDate, endDate, "EXPENSE", courierId, page, size)));
+        }
+        return ResponseEntity.ok(ApiResponse.ok(financeService.getTransactions(farmId, startDate, endDate, "EXPENSE", courierId)));
+    }
+
     @GetMapping("/couriers/daily-summary")
     @Operation(summary = "Kuryerlarning kunlik suv statistikasi (yuklangan, sotilgan, qolgan balonlar, naqd/online tushum)")
     public ResponseEntity<ApiResponse<List<CourierDailySummaryResponse>>> getCourierDailySummary(

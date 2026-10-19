@@ -57,6 +57,9 @@ public class FinanceDtos {
         private BigDecimal amount;
         private Long orderId;
         private Long courierId;
+        private String courierName;
+        private Long createdBy;
+        private String createdByName;
         private String note;
         private Instant createdAt;
     }

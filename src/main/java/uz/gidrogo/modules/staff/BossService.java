@@ -132,19 +132,31 @@ public class BossService {
     // 3. MOLIYAVIY GRAFIK DINAMIKASI (SORTED BY DATE ASC)
     // ==========================================
     public List<FinanceChartItem> getFinanceChart(Long farmId, String period) {
+        return getFinanceChart(farmId, period, null, null);
+    }
+
+    public List<FinanceChartItem> getFinanceChart(Long farmId, String period, LocalDate startDate, LocalDate endDate) {
         Long targetFarmId = resolveFarmId(farmId);
         LocalDate today = uz.gidrogo.common.TashkentTime.today();
 
-        int daysCount = "month".equalsIgnoreCase(period) ? 30 : 7;
-        LocalDate startDate = today.minusDays(daysCount - 1);
+        LocalDate start;
+        LocalDate end;
+        if (startDate != null && endDate != null) {
+            start = startDate;
+            end = endDate;
+        } else {
+            int daysCount = ("month".equalsIgnoreCase(period) || "this_month".equalsIgnoreCase(period)) ? 30 : 7;
+            start = today.minusDays(daysCount - 1);
+            end = today;
+        }
 
         // BE-01: tushum faqat COMPLETED (completed_at kuni), xarajat — Manager xarajatlari. Yagona RevenueService.
         Map<LocalDate, uz.gidrogo.modules.finance.RevenueService.Totals> revenue =
-                revenueService.dailyTotals(targetFarmId, startDate, today);
-        Map<LocalDate, BigDecimal> expenses = revenueService.dailyExpenses(targetFarmId, startDate, today);
+                revenueService.dailyTotals(targetFarmId, start, end);
+        Map<LocalDate, BigDecimal> expenses = revenueService.dailyExpenses(targetFarmId, start, end);
 
         List<FinanceChartItem> result = new ArrayList<>();
-        for (LocalDate cur = startDate; !cur.isAfter(today); cur = cur.plusDays(1)) {
+        for (LocalDate cur = start; !cur.isAfter(end); cur = cur.plusDays(1)) {
             BigDecimal inc = revenue.getOrDefault(cur, uz.gidrogo.modules.finance.RevenueService.Totals.ZERO).revenue();
             BigDecimal exp = expenses.getOrDefault(cur, BigDecimal.ZERO);
             result.add(FinanceChartItem.builder()
@@ -380,11 +392,56 @@ public class BossService {
                     .todayDeliveredBottles(deliveredToday != null ? deliveredToday : BigDecimal.ZERO)
                     .vehicleModel(u.getVehicleModel())
                     .vehiclePlateNumber(u.getVehiclePlateNumber())
+                    .shiftType(u.getShiftType() != null ? u.getShiftType() : "DAY")
                     .avatarUrl(u.getAvatarUrl() != null && !u.getAvatarUrl().isBlank() ? u.getAvatarUrl() :
                             "https://ui-avatars.com/api/?name=" + (u.getFullName() != null ? u.getFullName().replace(" ", "+") : "User") + "&background=0D8ABC&color=fff&rounded=true")
                     .createdAt(u.getCreatedAt())
                     .build());
         }
         return result;
+    }
+
+    public EnhancedStaffItemResponse getStaffById(Long farmId, Long staffId) {
+        Long targetFarmId = resolveFarmId(farmId);
+        User u = userRepository.findById(staffId)
+                .orElseThrow(() -> new ResourceNotFoundException("Xodim topilmadi"));
+        if (!targetFarmId.equals(u.getFarmId())) {
+            throw new BadRequestException("Ushbu xodim sizning fermangizga tegishli emas");
+        }
+
+        Instant startOfToday = uz.gidrogo.common.TashkentTime.startOf(uz.gidrogo.common.TashkentTime.today());
+        boolean isOnline = false;
+        try {
+            String onlineVal = redisTemplate.opsForValue().get("courier:online:" + u.getId());
+            isOnline = "true".equalsIgnoreCase(onlineVal);
+        } catch (Exception ignored) {}
+
+        BigDecimal deliveredToday = BigDecimal.ZERO;
+        if (u.getRole() == Role.COURIER) {
+            deliveredToday = orderRepository.sumDeliveredBottlesByCourierSince(u.getId(), startOfToday);
+        }
+
+        String roleLabel = u.getRole() == Role.MANAGER ? "Manager" : "Dastavkachi";
+        String statusLabel = "ACTIVE".equalsIgnoreCase(u.getStatus()) ? "Faol" : "Bloklangan";
+
+        return EnhancedStaffItemResponse.builder()
+                .id(u.getId())
+                .farmId(u.getFarmId())
+                .fullName(u.getFullName())
+                .phone(u.getPhone())
+                .role(u.getRole().name())
+                .roleLabel(roleLabel)
+                .status(u.getStatus())
+                .statusLabel(statusLabel)
+                .isOnline(isOnline)
+                .regionName("Markaziy hudud")
+                .todayDeliveredBottles(deliveredToday != null ? deliveredToday : BigDecimal.ZERO)
+                .vehicleModel(u.getVehicleModel())
+                .vehiclePlateNumber(u.getVehiclePlateNumber())
+                .shiftType(u.getShiftType() != null ? u.getShiftType() : "DAY")
+                .avatarUrl(u.getAvatarUrl() != null && !u.getAvatarUrl().isBlank() ? u.getAvatarUrl() :
+                        "https://ui-avatars.com/api/?name=" + (u.getFullName() != null ? u.getFullName().replace(" ", "+") : "User") + "&background=0D8ABC&color=fff&rounded=true")
+                .createdAt(u.getCreatedAt())
+                .build();
     }
 }

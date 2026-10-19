@@ -77,16 +77,13 @@ public class FinanceService {
      * Davrlar: today (bugun), week (oxirgi 7 kun), month (oxirgi 30 kun), year (oxirgi 365 kun), all.
      */
     public FinanceSummaryResponse getSummary(Long farmId, String period) {
-        String p = period != null ? period.toLowerCase() : "all";
-        LocalDate today = TashkentTime.today();
-        Instant since = switch (p) {
-            case "today" -> TashkentTime.startOf(today);
-            case "week" -> TashkentTime.startOf(today.minusDays(6));
-            case "month" -> TashkentTime.startOf(today.minusDays(29));
-            case "year" -> TashkentTime.startOf(today.minusDays(364));
-            default -> Instant.EPOCH;
-        };
-        Instant until = TashkentTime.endExclusive(today);
+        return getSummary(farmId, period, null, null, null);
+    }
+
+    public FinanceSummaryResponse getSummary(Long farmId, String period, LocalDate date, LocalDate startDate, LocalDate endDate) {
+        LocalDate[] range = TashkentTime.resolveRange(period, date, startDate, endDate, null, null);
+        Instant since = TashkentTime.startOf(range[0]);
+        Instant until = TashkentTime.endExclusive(range[1]);
 
         RevenueService.Totals totals = revenueService.totals(farmId, since, until);
         BigDecimal expense = revenueService.expenses(farmId, since, until);
@@ -233,6 +230,15 @@ public class FinanceService {
     }
 
     private TransactionResponse mapToResponse(FinanceTransaction tx) {
+        String createdByName = null;
+        if (tx.getCreatedBy() != null) {
+            createdByName = userRepository.findById(tx.getCreatedBy()).map(uz.gidrogo.modules.auth.User::getFullName).orElse(null);
+        }
+        String courierName = null;
+        if (tx.getCourierId() != null) {
+            courierName = userRepository.findById(tx.getCourierId()).map(uz.gidrogo.modules.auth.User::getFullName).orElse(null);
+        }
+
         return TransactionResponse.builder()
                 .id(tx.getId())
                 .farmId(tx.getFarmId())
@@ -241,6 +247,9 @@ public class FinanceService {
                 .amount(tx.getAmount())
                 .orderId(tx.getOrderId())
                 .courierId(tx.getCourierId())
+                .courierName(courierName)
+                .createdBy(tx.getCreatedBy())
+                .createdByName(createdByName)
                 .note(tx.getNote())
                 .createdAt(tx.getCreatedAt())
                 .build();

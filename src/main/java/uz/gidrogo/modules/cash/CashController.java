@@ -95,9 +95,13 @@ public class CashController {
     @GetMapping("/api/boss/cash/summary")
     @Operation(summary = "Boss uchun kassa tushumi, topshirilgan va dastavkachilarda qolgan summa hisoboti")
     public ResponseEntity<ApiResponse<BossCashSummaryResponse>> getBossCashSummary(
+            @RequestParam(required = false) String period,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(cashService.getBossCashSummary(farmId, from, to)));
+        return ResponseEntity.ok(ApiResponse.ok(cashService.getBossCashSummary(farmId, period, date, startDate, endDate, from, to)));
     }
 }
