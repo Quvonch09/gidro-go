@@ -227,6 +227,48 @@ public class SuperAdminDtos {
         private Instant createdAt;
     }
 
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AuditLogStatsResponse {
+        private long totalLogs;
+        private long farmActions;
+        private long userActions;
+        private long systemActions;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AuditLogFiltersResponse {
+        private List<FilterOption> actionTypes;
+        private List<FilterOption> objectTypes;
+        private List<SuperAdminOption> superAdmins;
+        private List<FilterOption> periods;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FilterOption {
+        private String code;
+        private String label;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SuperAdminOption {
+        private Long id;
+        private String fullName;
+        private String phone;
+        private String role;
+    }
+
     // ==========================================
     // 4. SOZLAMALAR VA PROFIL (BE-21)
     // ==========================================

@@ -81,36 +81,28 @@ public class AuthService {
      */
     @Transactional(noRollbackFor = ApiException.class)
     public AuthResponse login(LoginRequest request) {
-        String identifier = "";
-        String reqLogin = (request.getLogin() != null && !request.getLogin().isBlank() && !request.getLogin().equalsIgnoreCase("string"))
-                ? request.getLogin().trim() : null;
-        String reqPhone = (request.getPhone() != null && !request.getPhone().isBlank() && !request.getPhone().equalsIgnoreCase("string"))
-                ? request.getPhone().trim() : null;
-
-        if (reqLogin != null) {
-            identifier = reqLogin;
-        } else if (reqPhone != null) {
-            identifier = reqPhone;
+        String rawIdentifier = null;
+        if (request.getLogin() != null && !request.getLogin().isBlank() && !request.getLogin().equalsIgnoreCase("string")) {
+            rawIdentifier = request.getLogin().trim();
+        } else if (request.getUsername() != null && !request.getUsername().isBlank() && !request.getUsername().equalsIgnoreCase("string")) {
+            rawIdentifier = request.getUsername().trim();
+        } else if (request.getPhone() != null && !request.getPhone().isBlank() && !request.getPhone().equalsIgnoreCase("string")) {
+            rawIdentifier = request.getPhone().trim();
         }
-        if (identifier.isBlank()) {
+
+        if (rawIdentifier == null || rawIdentifier.isBlank()) {
             throw ApiException.unprocessable("IDENTIFIER_REQUIRED", "phone", "Telefon raqam yoki login kiritilishi shart");
         }
-        String altPhone = identifier;
-        if (!identifier.startsWith("+") && identifier.matches("\\d+")) {
-            if (identifier.startsWith("998")) {
-                altPhone = "+" + identifier;
-            } else if (identifier.length() == 9) {
-                altPhone = "+998" + identifier;
-            }
-        } else if (identifier.startsWith("+998")) {
-            altPhone = identifier.substring(1);
-        }
 
+        String identifier = rawIdentifier;
+        String normalizedPhone = OtpService.normalizePhone(rawIdentifier);
+        String altPhone = (normalizedPhone != null && normalizedPhone.startsWith("+")) ? normalizedPhone.substring(1) : normalizedPhone;
+
+        String rateKey = (normalizedPhone != null && normalizedPhone.startsWith("+998")) ? normalizedPhone : identifier;
         String ip = ClientIp.ip();
-        String rateKey = altPhone.startsWith("+") ? altPhone : identifier;
         loginRateLimiter.checkAllowed(rateKey, ip);
 
-        Optional<User> userOpt = userRepository.findByUsernameOrPhone(identifier, altPhone);
+        Optional<User> userOpt = userRepository.findByUsernameOrPhone(identifier, altPhone, normalizedPhone);
         boolean passwordMatches = userOpt.isPresent()
                 && passwordEncoder.matches(request.getPassword(), userOpt.get().getPasswordHash());
 

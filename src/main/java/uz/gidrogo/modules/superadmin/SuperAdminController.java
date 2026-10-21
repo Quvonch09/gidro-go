@@ -8,6 +8,8 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import uz.gidrogo.common.ApiResponse;
@@ -21,6 +23,7 @@ import uz.gidrogo.modules.farm.dto.FarmDtos.*;
 import uz.gidrogo.modules.superadmin.dto.SuperAdminDtos.*;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -222,12 +225,19 @@ public class SuperAdminController {
     // AUDIT LOG (BE-12)
     // ==========================================
 
-    @GetMapping("/audit-log")
-    @Operation(summary = "Audit Log: action (bir nechta), entityType, status, from/to, search, sahifalash")
+    @GetMapping({"/audit-log", "/audit-logs"})
+    @Operation(summary = "Audit Log: action, entityType, actorId, period, from/to, search, sahifalash")
     public ResponseEntity<ApiResponse<PageResponse<AuditLogItem>>> getAuditLog(
-            @Parameter(description = "Masalan: action=FARM_BLOCKED&action=BOSS_UPDATED yoki vergul bilan") @RequestParam(required = false) List<String> action,
+            @Parameter(description = "Amal turi (masalan: FARM_CREATED yoki bir nechta)") @RequestParam(required = false) List<String> action,
+            @RequestParam(required = false) String actionType,
             @RequestParam(required = false) String entityType,
+            @RequestParam(required = false) String object,
+            @RequestParam(required = false) String targetType,
+            @RequestParam(required = false) Long actorId,
+            @RequestParam(required = false) Long superAdminId,
             @Parameter(description = "Natija: SUCCESS | FAILED | WARNING") @RequestParam(required = false) String status,
+            @RequestParam(required = false) String period,
+            @RequestParam(required = false) Integer days,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
@@ -236,11 +246,82 @@ public class SuperAdminController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "createdAt | action | id") @RequestParam(required = false) String sort) {
-        LocalDate[] range = (startDate != null || endDate != null || from != null || to != null)
-                ? uz.gidrogo.common.TashkentTime.resolveRange(null, null, startDate, endDate, from, to)
-                : new LocalDate[]{null, null};
+
+        List<String> combinedActions = new ArrayList<>();
+        if (action != null) combinedActions.addAll(action);
+        if (actionType != null && !actionType.isBlank() && !combinedActions.contains(actionType)) {
+            combinedActions.add(actionType);
+        }
+
+        String effEntity = (entityType != null && !entityType.isBlank()) ? entityType
+                : (object != null && !object.isBlank()) ? object : targetType;
+
+        Long effActorId = actorId != null ? actorId : superAdminId;
+        String effPeriod = period != null ? period : (days != null ? String.valueOf(days) : null);
+        LocalDate[] range = uz.gidrogo.common.TashkentTime.resolveRange(effPeriod, null, startDate, endDate, from, to);
+
         return ResponseEntity.ok(ApiResponse.ok(superAdminService.getAuditLogs(
-                action, entityType, status, range[0], range[1], search, page, size, sort)));
+                combinedActions, effEntity, effActorId, status, range[0], range[1], search, page, size, sort)));
+    }
+
+    @GetMapping({"/audit-log/stats", "/audit-logs/stats"})
+    @Operation(summary = "Audit Log KPI statistikalari (Jami qaydlar, Ferma amallari, Rahbar & User amallari)")
+    public ResponseEntity<ApiResponse<AuditLogStatsResponse>> getAuditLogStats(
+            @RequestParam(required = false) String period,
+            @RequestParam(required = false) Integer days,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        String effPeriod = period != null ? period : (days != null ? String.valueOf(days) : null);
+        return ResponseEntity.ok(ApiResponse.ok(superAdminService.getAuditLogStats(effPeriod, null, startDate, endDate, from, to)));
+    }
+
+    @GetMapping({"/audit-log/filters", "/audit-logs/filters"})
+    @Operation(summary = "Audit Log filter dropdownlari uchun parametrlar (Amal turi, Obyekt, SuperAdmin ro'yxati)")
+    public ResponseEntity<ApiResponse<AuditLogFiltersResponse>> getAuditLogFilters() {
+        return ResponseEntity.ok(ApiResponse.ok(superAdminService.getAuditLogFilters()));
+    }
+
+    @GetMapping({"/audit-log/export", "/audit-logs/export"})
+    @Operation(summary = "Audit Loglarni CSV/Excel formatida eksport qilish")
+    public ResponseEntity<byte[]> exportAuditLog(
+            @RequestParam(required = false) List<String> action,
+            @RequestParam(required = false) String actionType,
+            @RequestParam(required = false) String entityType,
+            @RequestParam(required = false) String object,
+            @RequestParam(required = false) String targetType,
+            @RequestParam(required = false) Long actorId,
+            @RequestParam(required = false) Long superAdminId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String period,
+            @RequestParam(required = false) Integer days,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String search) {
+
+        List<String> combinedActions = new ArrayList<>();
+        if (action != null) combinedActions.addAll(action);
+        if (actionType != null && !actionType.isBlank() && !combinedActions.contains(actionType)) {
+            combinedActions.add(actionType);
+        }
+
+        String effEntity = (entityType != null && !entityType.isBlank()) ? entityType
+                : (object != null && !object.isBlank()) ? object : targetType;
+
+        Long effActorId = actorId != null ? actorId : superAdminId;
+        String effPeriod = period != null ? period : (days != null ? String.valueOf(days) : null);
+        LocalDate[] range = uz.gidrogo.common.TashkentTime.resolveRange(effPeriod, null, startDate, endDate, from, to);
+
+        byte[] csv = superAdminService.exportAuditLogsToCsv(combinedActions, effEntity, effActorId, status, range[0], range[1], search);
+        String filename = "audit_log_" + LocalDate.now() + ".csv";
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+                .body(csv);
     }
 
     // ==========================================

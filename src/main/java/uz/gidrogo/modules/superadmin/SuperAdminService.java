@@ -37,9 +37,11 @@ import uz.gidrogo.modules.superadmin.dto.SuperAdminDtos.*;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -469,7 +471,7 @@ public class SuperAdminService {
     // 3. AUDIT LOG (BE-12)
     // ==========================================
 
-    public PageResponse<AuditLogItem> getAuditLogs(Collection<String> actions, String entityType, String status,
+    public PageResponse<AuditLogItem> getAuditLogs(Collection<String> actions, String entityType, Long actorId, String status,
                                                    LocalDate from, LocalDate to,
                                                    String search, int page, int size, String sort) {
         Pageable pageable = PageResponse.pageable(page, size, sort, AUDIT_SORT_FIELDS, Sort.by(Sort.Direction.DESC, "createdAt"));
@@ -507,15 +509,25 @@ public class SuperAdminService {
                     actionList.add("BOSS_UPDATED");
                     actionList.add("SETTINGS_UPDATED");
                 }
-                default -> actionList.add(act);
+                default -> {
+                    if (!act.equalsIgnoreCase("ALL") && !act.equalsIgnoreCase("BARCHASI")) {
+                        actionList.add(act);
+                    }
+                }
             }
         }
+        actionList.removeIf(a -> a.equalsIgnoreCase("ALL") || a.equalsIgnoreCase("BARCHASI"));
 
         Specification<SuperAdminAuditLog> spec = (root, q, cb) -> {
             List<Predicate> ps = new ArrayList<>();
             if (!actionList.isEmpty()) ps.add(root.get("action").in(actionList));
-            if (entityType != null && !entityType.isBlank()) {
-                ps.add(cb.equal(root.get("entityType"), entityType.trim().toUpperCase(Locale.ROOT)));
+            if (entityType != null && !entityType.isBlank() 
+                    && !entityType.equalsIgnoreCase("ALL") 
+                    && !entityType.equalsIgnoreCase("BARCHASI")) {
+                ps.add(cb.equal(cb.upper(root.get("entityType")), entityType.trim().toUpperCase(Locale.ROOT)));
+            }
+            if (actorId != null && actorId > 0) {
+                ps.add(cb.equal(root.get("actorId"), actorId));
             }
             if (from != null) ps.add(cb.greaterThanOrEqualTo(root.get("createdAt"), TashkentTime.startOf(from)));
             if (to != null) ps.add(cb.lessThan(root.get("createdAt"), TashkentTime.endExclusive(to)));
@@ -527,6 +539,7 @@ public class SuperAdminService {
                 List<Predicate> or = new ArrayList<>(List.of(
                         cb.like(cb.lower(cb.coalesce(root.get("metadata"), "")), like),
                         cb.like(cb.lower(root.get("action")), like),
+                        cb.like(cb.lower(cb.coalesce(root.get("entityType"), "")), like),
                         root.get("actorId").in(actors)));
                 if (search.trim().matches("\\d{1,18}")) {
                     or.add(cb.equal(root.get("entityId"), Long.parseLong(search.trim())));
@@ -555,9 +568,147 @@ public class SuperAdminService {
                 .build());
     }
 
+    public PageResponse<AuditLogItem> getAuditLogs(Collection<String> actions, String entityType, String status,
+                                                   LocalDate from, LocalDate to,
+                                                   String search, int page, int size, String sort) {
+        return getAuditLogs(actions, entityType, null, status, from, to, search, page, size, sort);
+    }
+
     public PageResponse<AuditLogItem> getAuditLogs(Collection<String> actions, String entityType, LocalDate from, LocalDate to,
                                                    String search, int page, int size, String sort) {
-        return getAuditLogs(actions, entityType, null, from, to, search, page, size, sort);
+        return getAuditLogs(actions, entityType, null, null, from, to, search, page, size, sort);
+    }
+
+    public AuditLogStatsResponse getAuditLogStats(String period, LocalDate date, LocalDate startDate, LocalDate endDate,
+                                                  LocalDate from, LocalDate to) {
+        LocalDate[] range = TashkentTime.resolveRange(period, date, startDate, endDate, from, to);
+        Instant start = range[0] != null ? TashkentTime.startOf(range[0]) : null;
+        Instant end = range[1] != null ? TashkentTime.endExclusive(range[1]) : null;
+
+        long total = auditLogRepository.countTotal(start, end);
+        long farm = auditLogRepository.countFarmActions(start, end);
+        long user = auditLogRepository.countUserActions(start, end);
+        long system = Math.max(0, total - (farm + user));
+
+        return AuditLogStatsResponse.builder()
+                .totalLogs(total)
+                .farmActions(farm)
+                .userActions(user)
+                .systemActions(system)
+                .build();
+    }
+
+    public AuditLogFiltersResponse getAuditLogFilters() {
+        List<FilterOption> actionTypes = new ArrayList<>();
+        actionTypes.add(new FilterOption("ALL", "Barchasi"));
+        actionTypes.add(new FilterOption("FERMA_TIZIMI", "Ferma amallari"));
+        actionTypes.add(new FilterOption("STATUS_OZGARTIRISH", "Status o'zgartirish"));
+        actionTypes.add(new FilterOption("XAVFSIZLIK", "Xavfsizlik amallari"));
+        actionTypes.add(new FilterOption("LOGIN", "Tizimga kirish"));
+
+        Map<String, String> defaultLabels = new LinkedHashMap<>();
+        defaultLabels.put("FARM_CREATED", "Ferma yaratildi");
+        defaultLabels.put("FARM_UPDATED", "Ferma yangilandi");
+        defaultLabels.put("FARM_BLOCKED", "Ferma bloklandi");
+        defaultLabels.put("FARM_STATUS_CHANGED", "Ferma statusi o'zgardi");
+        defaultLabels.put("BOSS_CREATED", "Rahbar yaratildi");
+        defaultLabels.put("BOSS_UPDATED", "Rahbar yangilandi");
+        defaultLabels.put("BOSS_STATUS_CHANGED", "Rahbar statusi o'zgardi");
+        defaultLabels.put("BOSS_DELETED", "Rahbar o'chirildi");
+        defaultLabels.put("BOSS_REQUEST_APPROVED", "Rahbar so'rovi tasdiqlandi");
+        defaultLabels.put("BOSS_REQUEST_REJECTED", "Rahbar so'rovi rad etildi");
+        defaultLabels.put("CLIENT_BLOCKED", "Mijoz bloklandi");
+        defaultLabels.put("CLIENT_ACTIVATED", "Mijoz faollashtirildi");
+        defaultLabels.put("CLIENT_DELETED", "Mijoz o'chirildi");
+        defaultLabels.put("PROFILE_UPDATE", "Profil yangilandi");
+        defaultLabels.put("PASSWORD_CHANGED", "Parol o'zgartirildi");
+        defaultLabels.put("SETTINGS_UPDATED", "Sozlamalar yangilandi");
+
+        Set<String> addedCodes = actionTypes.stream().map(FilterOption::getCode).collect(Collectors.toSet());
+        defaultLabels.forEach((code, label) -> {
+            if (addedCodes.add(code)) {
+                actionTypes.add(new FilterOption(code, label));
+            }
+        });
+
+        // Add any additional distinct actions from DB
+        List<String> dbActions = auditLogRepository.findDistinctActions();
+        for (String dbAct : dbActions) {
+            if (dbAct != null && !dbAct.isBlank() && addedCodes.add(dbAct)) {
+                actionTypes.add(new FilterOption(dbAct, dbAct));
+            }
+        }
+
+        List<FilterOption> objectTypes = new ArrayList<>();
+        objectTypes.add(new FilterOption("ALL", "Barchasi"));
+        objectTypes.add(new FilterOption("FARM", "Ferma"));
+        objectTypes.add(new FilterOption("BOSS", "Rahbar (Boss)"));
+        objectTypes.add(new FilterOption("CLIENT", "Mijoz"));
+        objectTypes.add(new FilterOption("SUPERADMIN", "SuperAdmin"));
+        objectTypes.add(new FilterOption("SETTINGS", "Sozlamalar"));
+
+        Set<String> addedObjects = objectTypes.stream().map(FilterOption::getCode).collect(Collectors.toSet());
+        List<String> dbEntityTypes = auditLogRepository.findDistinctEntityTypes();
+        for (String dbEnt : dbEntityTypes) {
+            if (dbEnt != null && !dbEnt.isBlank() && addedObjects.add(dbEnt.toUpperCase(Locale.ROOT))) {
+                objectTypes.add(new FilterOption(dbEnt.toUpperCase(Locale.ROOT), dbEnt));
+            }
+        }
+
+        List<SuperAdminOption> superAdmins = userRepository.findAllByRole(Role.SUPER_ADMIN).stream()
+                .map(u -> new SuperAdminOption(u.getId(), u.getFullName(), u.getPhone(), u.getRole().name()))
+                .toList();
+
+        List<FilterOption> periods = List.of(
+                new FilterOption("last_30_days", "So'nggi 30 kun"),
+                new FilterOption("last_7_days", "So'nggi 7 kun"),
+                new FilterOption("today", "Bugun"),
+                new FilterOption("yesterday", "Kecha"),
+                new FilterOption("this_week", "Shu hafta"),
+                new FilterOption("this_month", "Shu oy"),
+                new FilterOption("this_year", "Shu yil"),
+                new FilterOption("all", "Barchasi")
+        );
+
+        return AuditLogFiltersResponse.builder()
+                .actionTypes(actionTypes)
+                .objectTypes(objectTypes)
+                .superAdmins(superAdmins)
+                .periods(periods)
+                .build();
+    }
+
+    public byte[] exportAuditLogsToCsv(Collection<String> actions, String entityType, Long actorId, String status,
+                                       LocalDate from, LocalDate to, String search) {
+        PageResponse<AuditLogItem> page = getAuditLogs(actions, entityType, actorId, status, from, to, search, 0, 50000, "createdAt,desc");
+        StringBuilder sb = new StringBuilder();
+        // UTF-8 BOM so MS Excel opens CSV with proper character encoding
+        sb.append('\uFEFF');
+        sb.append("ID,Sana va vaqt,SuperAdmin,Amal turi,Obyekt turi,Obyekt ID,Tavsif va sabab,IP manzil,Status\n");
+
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss").withZone(TashkentTime.ZONE);
+
+        for (AuditLogItem item : page.getContent()) {
+            String timeStr = item.getCreatedAt() != null ? dtf.format(item.getCreatedAt()) : "";
+            String actor = item.getActorName() != null ? item.getActorName() : ("#" + item.getActorId());
+            String desc = item.getMetadata() != null ? item.getMetadata().toString() : "";
+
+            sb.append(escapeCsv(String.valueOf(item.getId()))).append(",");
+            sb.append(escapeCsv(timeStr)).append(",");
+            sb.append(escapeCsv(actor)).append(",");
+            sb.append(escapeCsv(item.getAction())).append(",");
+            sb.append(escapeCsv(item.getEntityType())).append(",");
+            sb.append(escapeCsv(item.getEntityId() != null ? String.valueOf(item.getEntityId()) : "")).append(",");
+            sb.append(escapeCsv(desc)).append(",");
+            sb.append(escapeCsv(item.getIpAddress() != null ? item.getIpAddress() : "")).append(",");
+            sb.append(escapeCsv(item.getStatus() != null ? item.getStatus() : "SUCCESS")).append("\n");
+        }
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String escapeCsv(String val) {
+        if (val == null) return "\"\"";
+        return "\"" + val.replace("\"", "\"\"") + "\"";
     }
 
     // ==========================================

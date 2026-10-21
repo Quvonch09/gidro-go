@@ -17,6 +17,9 @@ public class AuthDtos {
         @io.swagger.v3.oas.annotations.media.Schema(description = "Username yoki telefon raqami", example = "+998901234567")
         private String login;
 
+        @io.swagger.v3.oas.annotations.media.Schema(description = "Username (agar frontend username bilan yuborsa)", example = "admin")
+        private String username;
+
         @io.swagger.v3.oas.annotations.media.Schema(description = "Telefon raqam (agar login kiritilmagan bo'lsa)", example = "")
         private String phone;
 

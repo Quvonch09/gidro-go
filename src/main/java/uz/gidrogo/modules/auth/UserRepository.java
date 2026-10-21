@@ -14,12 +14,18 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @org.springframework.data.jpa.repository.Query("""
         SELECT u FROM User u 
-        WHERE LOWER(u.username) = LOWER(:identifier) 
+        WHERE (u.username IS NOT NULL AND LOWER(u.username) = LOWER(:identifier)) 
            OR u.phone = :identifier 
            OR u.phone = :altPhone
+           OR (:normalizedPhone IS NOT NULL AND u.phone = :normalizedPhone)
     """)
     Optional<User> findByUsernameOrPhone(@org.springframework.data.repository.query.Param("identifier") String identifier,
-                                         @org.springframework.data.repository.query.Param("altPhone") String altPhone);
+                                         @org.springframework.data.repository.query.Param("altPhone") String altPhone,
+                                         @org.springframework.data.repository.query.Param("normalizedPhone") String normalizedPhone);
+
+    default Optional<User> findByUsernameOrPhone(String identifier, String altPhone) {
+        return findByUsernameOrPhone(identifier, altPhone, altPhone);
+    }
 
     boolean existsByUsername(String username);
     boolean existsByPhone(String phone);

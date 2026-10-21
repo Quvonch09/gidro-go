@@ -70,12 +70,24 @@ public final class TashkentTime {
         }
         LocalDate today = today();
         if (period != null && !period.isBlank()) {
-            return switch (period.toLowerCase(java.util.Locale.ROOT).trim()) {
+            String p = period.toLowerCase(java.util.Locale.ROOT).trim();
+            if (p.equals("all") || p.equals("barchasi") || p.equals("hammasi")) {
+                return new LocalDate[]{null, null};
+            }
+            if (p.matches("\\d+")) {
+                int days = Integer.parseInt(p);
+                if (days <= 1) return new LocalDate[]{today, today};
+                return new LocalDate[]{today.minusDays(days - 1), today};
+            }
+            return switch (p) {
                 case "today", "bugun" -> new LocalDate[]{today, today};
                 case "yesterday", "kecha" -> new LocalDate[]{today.minusDays(1), today.minusDays(1)};
-                case "this_week", "week", "shu hafta", "7days", "7_days" -> new LocalDate[]{today.minusDays(6), today};
+                case "this_week", "week", "shu hafta", "7days", "7_days", "7_kun", "7kun", "last_7_days", "so'nggi 7 kun" ->
+                        new LocalDate[]{today.minusDays(6), today};
                 case "this_month", "month", "shu oy" -> new LocalDate[]{today.withDayOfMonth(1), today};
-                case "quarter", "chorak" -> new LocalDate[]{today.minusMonths(3).plusDays(1), today};
+                case "30days", "30_days", "30_kun", "30kun", "last_30_days", "so'nggi 30 kun" ->
+                        new LocalDate[]{today.minusDays(29), today};
+                case "quarter", "chorak", "90days", "90_days" -> new LocalDate[]{today.minusMonths(3).plusDays(1), today};
                 case "this_year", "year", "shu yil" -> new LocalDate[]{today.withDayOfYear(1), today};
                 default -> new LocalDate[]{today.minusDays(29), today};
             };
