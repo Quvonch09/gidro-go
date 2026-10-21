@@ -471,10 +471,8 @@ public class SuperAdminService {
     // 3. AUDIT LOG (BE-12)
     // ==========================================
 
-    public PageResponse<AuditLogItem> getAuditLogs(Collection<String> actions, String entityType, Long actorId, String status,
-                                                   LocalDate from, LocalDate to,
-                                                   String search, int page, int size, String sort) {
-        Pageable pageable = PageResponse.pageable(page, size, sort, AUDIT_SORT_FIELDS, Sort.by(Sort.Direction.DESC, "createdAt"));
+    private Specification<SuperAdminAuditLog> buildAuditLogSpec(Collection<String> actions, String entityType, Long actorId,
+                                                                 LocalDate from, LocalDate to, String search) {
         List<String> rawActions = actions == null ? List.of() : actions.stream()
                 .filter(Objects::nonNull)
                 .flatMap(a -> Arrays.stream(a.split(",")))
@@ -518,7 +516,7 @@ public class SuperAdminService {
         }
         actionList.removeIf(a -> a.equalsIgnoreCase("ALL") || a.equalsIgnoreCase("BARCHASI"));
 
-        Specification<SuperAdminAuditLog> spec = (root, q, cb) -> {
+        return (root, q, cb) -> {
             List<Predicate> ps = new ArrayList<>();
             if (!actionList.isEmpty()) ps.add(root.get("action").in(actionList));
             if (entityType != null && !entityType.isBlank() 
@@ -548,9 +546,16 @@ public class SuperAdminService {
             }
             return cb.and(ps.toArray(new Predicate[0]));
         };
+    }
+
+    public PageResponse<AuditLogItem> getAuditLogs(Collection<String> actions, String entityType, Long actorId, String status,
+                                                   LocalDate from, LocalDate to,
+                                                   String search, int page, int size, String sort) {
+        Pageable pageable = PageResponse.pageable(page, size, sort, AUDIT_SORT_FIELDS, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Specification<SuperAdminAuditLog> spec = buildAuditLogSpec(actions, entityType, actorId, from, to, search);
 
         Page<SuperAdminAuditLog> result = auditLogRepository.findAll(spec, pageable);
-        Set<Long> actorIds = result.getContent().stream().map(SuperAdminAuditLog::getActorId).collect(Collectors.toSet());
+        Set<Long> actorIds = result.getContent().stream().map(SuperAdminAuditLog::getActorId).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<Long, String> names = userRepository.findAllById(actorIds).stream()
                 .collect(Collectors.toMap(User::getId, User::getFullName));
         return PageResponse.of(result, log -> AuditLogItem.builder()
@@ -585,9 +590,31 @@ public class SuperAdminService {
         Instant start = range[0] != null ? TashkentTime.startOf(range[0]) : null;
         Instant end = range[1] != null ? TashkentTime.endExclusive(range[1]) : null;
 
-        long total = auditLogRepository.countTotal(start, end);
-        long farm = auditLogRepository.countFarmActions(start, end);
-        long user = auditLogRepository.countUserActions(start, end);
+        Specification<SuperAdminAuditLog> baseSpec = (root, q, cb) -> {
+            List<Predicate> ps = new ArrayList<>();
+            if (start != null) ps.add(cb.greaterThanOrEqualTo(root.get("createdAt"), start));
+            if (end != null) ps.add(cb.lessThan(root.get("createdAt"), end));
+            return ps.isEmpty() ? cb.conjunction() : cb.and(ps.toArray(new Predicate[0]));
+        };
+
+        Specification<SuperAdminAuditLog> farmSpec = baseSpec.and((root, q, cb) ->
+                cb.or(
+                        cb.equal(cb.upper(root.get("entityType")), "FARM"),
+                        cb.like(cb.upper(root.get("action")), "FARM_%")
+                )
+        );
+
+        Specification<SuperAdminAuditLog> userSpec = baseSpec.and((root, q, cb) ->
+                cb.or(
+                        cb.upper(root.get("entityType")).in("BOSS", "USER", "CLIENT"),
+                        cb.like(cb.upper(root.get("action")), "BOSS_%"),
+                        cb.like(cb.upper(root.get("action")), "CLIENT_%")
+                )
+        );
+
+        long total = auditLogRepository.count(baseSpec);
+        long farm = auditLogRepository.count(farmSpec);
+        long user = auditLogRepository.count(userSpec);
         long system = Math.max(0, total - (farm + user));
 
         return AuditLogStatsResponse.builder()
@@ -680,7 +707,12 @@ public class SuperAdminService {
 
     public byte[] exportAuditLogsToCsv(Collection<String> actions, String entityType, Long actorId, String status,
                                        LocalDate from, LocalDate to, String search) {
-        PageResponse<AuditLogItem> page = getAuditLogs(actions, entityType, actorId, status, from, to, search, 0, 50000, "createdAt,desc");
+        Specification<SuperAdminAuditLog> spec = buildAuditLogSpec(actions, entityType, actorId, from, to, search);
+        List<SuperAdminAuditLog> list = auditLogRepository.findAll(spec, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Set<Long> actorIds = list.stream().map(SuperAdminAuditLog::getActorId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> names = userRepository.findAllById(actorIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getFullName));
+
         StringBuilder sb = new StringBuilder();
         // UTF-8 BOM so MS Excel opens CSV with proper character encoding
         sb.append('\uFEFF');
@@ -688,10 +720,10 @@ public class SuperAdminService {
 
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss").withZone(TashkentTime.ZONE);
 
-        for (AuditLogItem item : page.getContent()) {
+        for (SuperAdminAuditLog item : list) {
             String timeStr = item.getCreatedAt() != null ? dtf.format(item.getCreatedAt()) : "";
-            String actor = item.getActorName() != null ? item.getActorName() : ("#" + item.getActorId());
-            String desc = item.getMetadata() != null ? item.getMetadata().toString() : "";
+            String actor = names.getOrDefault(item.getActorId(), item.getActorId() != null ? ("#" + item.getActorId()) : "");
+            String desc = item.getMetadata() != null ? item.getMetadata() : "";
 
             sb.append(escapeCsv(String.valueOf(item.getId()))).append(",");
             sb.append(escapeCsv(timeStr)).append(",");
@@ -701,7 +733,7 @@ public class SuperAdminService {
             sb.append(escapeCsv(item.getEntityId() != null ? String.valueOf(item.getEntityId()) : "")).append(",");
             sb.append(escapeCsv(desc)).append(",");
             sb.append(escapeCsv(item.getIpAddress() != null ? item.getIpAddress() : "")).append(",");
-            sb.append(escapeCsv(item.getStatus() != null ? item.getStatus() : "SUCCESS")).append("\n");
+            sb.append(escapeCsv("SUCCESS")).append("\n");
         }
         return sb.toString().getBytes(StandardCharsets.UTF_8);
     }
