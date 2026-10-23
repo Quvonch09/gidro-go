@@ -65,7 +65,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // Public endpoints
-                        .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/auth/**", "/api/client/telegram/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/client/available-farms").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/client/farms", "/api/client/farms/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/client/banners", "/api/client/banners/**").permitAll()

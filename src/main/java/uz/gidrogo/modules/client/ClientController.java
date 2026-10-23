@@ -148,4 +148,26 @@ public class ClientController {
     public ResponseEntity<ApiResponse<AddressResponse>> addAddress(@Valid @RequestBody AddressCreateRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(clientService.addAddress(request)));
     }
+
+    @PutMapping("/addresses/{id}")
+    @Operation(summary = "Mavjud manzilni tahrirlash yoki asosiy qilish (M-1)")
+    public ResponseEntity<ApiResponse<AddressResponse>> updateAddress(
+            @PathVariable Long id,
+            @Valid @RequestBody uz.gidrogo.modules.auth.dto.TelegramMiniAppDtos.AddressUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Manzil muvaffaqiyatli yangilandi", clientService.updateAddress(id, request)));
+    }
+
+    @DeleteMapping("/addresses/{id}")
+    @Operation(summary = "Manzilni o'chirish (M-1)")
+    public ResponseEntity<ApiResponse<String>> deleteAddress(@PathVariable Long id) {
+        clientService.deleteAddress(id);
+        return ResponseEntity.ok(ApiResponse.ok("Manzil muvaffaqiyatli o'chirildi", "OK"));
+    }
+
+    @DeleteMapping("/account")
+    @Operation(summary = "Mijoz hisobini o'chirish (M-2: shaxsiy ma'lumotlar anonimlashtiriladi)")
+    public ResponseEntity<ApiResponse<String>> deleteAccount() {
+        clientService.deleteClientAccount();
+        return ResponseEntity.ok(ApiResponse.ok("Hisobingiz muvaffaqiyatli o'chirildi", "OK"));
+    }
 }

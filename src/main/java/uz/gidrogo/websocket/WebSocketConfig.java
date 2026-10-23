@@ -32,6 +32,8 @@ import java.util.List;
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
+    private final uz.gidrogo.modules.auth.UserRepository userRepository;
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
@@ -66,6 +68,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
                     String token = extractToken(accessor);
 
+                    // 1. JWT Token tekshiruvi
                     if (token != null && jwtTokenProvider.validateToken(token)) {
                         try {
                             Long userId = jwtTokenProvider.getUserIdFromToken(token);
@@ -89,9 +92,48 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                                     );
 
                             accessor.setUser(auth);
-                            log.info("WebSocket authenticated user: id={}, role={}, farmId={}", userId, role, farmId);
+                            log.info("WebSocket authenticated user via token: id={}, role={}, farmId={}", userId, role, farmId);
                         } catch (Exception e) {
                             log.warn("WebSocket token parsing xatolik: {}", e.getMessage());
+                        }
+                    } else {
+                        // 2. Qisqa muddatli ticket tekshiruvi (B-TG-6 / X-15)
+                        String ticket = accessor.getFirstNativeHeader("ticket");
+                        if (ticket == null || ticket.isBlank()) {
+                            List<String> ticketHeaders = accessor.getNativeHeader("ticket");
+                            if (ticketHeaders != null && !ticketHeaders.isEmpty()) {
+                                ticket = ticketHeaders.get(0).trim();
+                            }
+                        }
+
+                        if (ticket != null && !ticket.isBlank()) {
+                            try {
+                                String cachedUserId = redisTemplate.opsForValue().getAndDelete("ws:ticket:" + ticket.trim());
+                                if (cachedUserId != null) {
+                                    Long userId = Long.valueOf(cachedUserId);
+                                    userRepository.findById(userId).ifPresent(user -> {
+                                        UserPrincipal principal = UserPrincipal.builder()
+                                                .id(user.getId())
+                                                .farmId(user.getFarmId())
+                                                .role(user.getRole())
+                                                .identifier(user.getUsername() != null ? user.getUsername() : user.getPhone())
+                                                .active(true)
+                                                .build();
+
+                                        UsernamePasswordAuthenticationToken auth =
+                                                new UsernamePasswordAuthenticationToken(
+                                                        principal,
+                                                        null,
+                                                        List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()))
+                                                );
+                                        accessor.setUser(auth);
+                                        log.info("WebSocket authenticated via ticket: id={}, role={}, farmId={}",
+                                                user.getId(), user.getRole(), user.getFarmId());
+                                    });
+                                }
+                            } catch (Exception e) {
+                                log.warn("WebSocket ticket authentication error: {}", e.getMessage());
+                            }
                         }
                     }
                 }

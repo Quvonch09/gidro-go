@@ -12,6 +12,10 @@ import java.time.Instant;
 
 public class StaffDtos {
 
+    public enum StaffRole {
+        MANAGER, COURIER
+    }
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
@@ -26,7 +30,7 @@ public class StaffDtos {
         private String password;
 
         @NotNull(message = "Rol (MANAGER yoki COURIER) kiritilishi shart")
-        private Role role;
+        private StaffRole role;
 
         private String shiftType; // DAY, NIGHT, FULL_TIME
     }

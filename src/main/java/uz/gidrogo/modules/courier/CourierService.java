@@ -301,6 +301,7 @@ public class CourierService {
                 courierId, List.of(OrderStatus.ON_THE_WAY));
 
         Long nearbyOrderId = null;
+        Double nearbyDistance = null;
         for (Order order : onTheWayOrders) {
             double distance = GeoUtils.calculateDistanceMeters(
                     request.getLatitude(), request.getLongitude(),
@@ -319,7 +320,8 @@ public class CourierService {
                         .build());
 
                 nearbyOrderId = order.getId();
-                log.info("Order {} mijozga 500m yaqinlashdi -> NEARBY", order.getOrderNumber());
+                nearbyDistance = Math.round(distance * 10.0) / 10.0;
+                log.info("Order {} mijozga 500m yaqinlashdi ({} m) -> NEARBY", order.getOrderNumber(), nearbyDistance);
 
                 eventPublisher.publishOrderStatusChanged(order.getFarmId(), courierId, order.getClientId(), orderService.mapToResponse(order, false));
             }
@@ -392,6 +394,7 @@ public class CourierService {
                 .status("OK")
                 .nearbyTriggered(nearbyOrderId != null)
                 .nearbyOrderId(nearbyOrderId)
+                .distanceMeters(nearbyDistance)
                 .build();
     }
 

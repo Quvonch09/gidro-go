@@ -44,28 +44,28 @@ public class RevenueService {
         }
     }
 
-    /** [from, to) oralig'ida COMPLETED yoki DELIVERED bo'lgan buyurtmalar tushumi. farmId = null → barcha fermalar. */
+    /** [from, to) oralig'ida COMPLETED bo'lgan buyurtmalar tushumi (BE-01). farmId = null → barcha fermalar. */
     public Totals totals(Long farmId, Instant from, Instant to) {
         MapSqlParameterSource p = params(farmId, from, to);
         String sql = "SELECT COUNT(*) AS cnt, COALESCE(SUM(" + WATER_SUM + "), 0) AS revenue, "
                 + "COALESCE(SUM(COALESCE(o.tara_sum, 0)), 0) AS tara "
-                + "FROM orders o WHERE o.status IN ('COMPLETED', 'DELIVERED') "
-                + "AND COALESCE(o.completed_at, o.delivered_at, o.created_at) >= :from "
-                + "AND COALESCE(o.completed_at, o.delivered_at, o.created_at) < :to"
+                + "FROM orders o WHERE o.status = 'COMPLETED' "
+                + "AND COALESCE(o.completed_at, o.created_at) >= :from "
+                + "AND COALESCE(o.completed_at, o.created_at) < :to"
                 + farmFilter(farmId);
         return jdbc.queryForObject(sql, p, (rs, i) -> new Totals(
                 rs.getLong("cnt"), rs.getBigDecimal("revenue"), rs.getBigDecimal("tara")));
     }
 
-    /** Kunlik tushum (Toshkent kuni bo'yicha), [start, end] kunlari ichida. */
+    /** Kunlik tushum (Toshkent kuni bo'yicha), [start, end] kunlari ichida (BE-01: faqat COMPLETED). */
     public Map<LocalDate, Totals> dailyTotals(Long farmId, LocalDate start, LocalDate end) {
         MapSqlParameterSource p = params(farmId, TashkentTime.startOf(start), TashkentTime.endExclusive(end));
-        String day = TASHKENT_DAY.formatted("COALESCE(o.completed_at, o.delivered_at, o.created_at)");
+        String day = TASHKENT_DAY.formatted("COALESCE(o.completed_at, o.created_at)");
         String sql = "SELECT " + day + " AS d, COUNT(*) AS cnt, COALESCE(SUM(" + WATER_SUM + "), 0) AS revenue, "
                 + "COALESCE(SUM(COALESCE(o.tara_sum, 0)), 0) AS tara "
-                + "FROM orders o WHERE o.status IN ('COMPLETED', 'DELIVERED') "
-                + "AND COALESCE(o.completed_at, o.delivered_at, o.created_at) >= :from "
-                + "AND COALESCE(o.completed_at, o.delivered_at, o.created_at) < :to"
+                + "FROM orders o WHERE o.status = 'COMPLETED' "
+                + "AND COALESCE(o.completed_at, o.created_at) >= :from "
+                + "AND COALESCE(o.completed_at, o.created_at) < :to"
                 + farmFilter(farmId) + " GROUP BY d";
         Map<LocalDate, Totals> result = new HashMap<>();
         jdbc.query(sql, p, rs -> {

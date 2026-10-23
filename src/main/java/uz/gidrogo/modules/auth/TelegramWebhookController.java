@@ -17,9 +17,20 @@ public class TelegramWebhookController {
 
     private final TelegramBotService telegramBotService;
 
+    @org.springframework.beans.factory.annotation.Value("${telegram.bot.secret-token:}")
+    private String configuredSecretToken;
+
     @PostMapping("/webhook")
-    @Operation(summary = "Telegram Bot Webhook qabul qiluvchi endpoint")
-    public ResponseEntity<Void> handleWebhook(@RequestBody JsonNode update) {
+    @Operation(summary = "Telegram Bot Webhook qabul qiluvchi endpoint (X-11)")
+    public ResponseEntity<Void> handleWebhook(
+            @RequestHeader(value = "X-Telegram-Bot-Api-Secret-Token", required = false) String secretToken,
+            @RequestBody JsonNode update) {
+        if (configuredSecretToken != null && !configuredSecretToken.isBlank()) {
+            if (!configuredSecretToken.equals(secretToken)) {
+                log.warn("[TELEGRAM WEBHOOK] Invalid secret token received");
+                return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED).build();
+            }
+        }
         try {
             telegramBotService.processUpdate(update);
         } catch (Exception e) {

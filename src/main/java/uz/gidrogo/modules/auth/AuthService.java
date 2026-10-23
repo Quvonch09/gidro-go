@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import uz.gidrogo.common.ApiException;
 import uz.gidrogo.common.BadRequestException;
 import uz.gidrogo.common.ClientIp;
+import uz.gidrogo.common.PasswordPolicy;
 import uz.gidrogo.common.SecurityUtils;
 import uz.gidrogo.modules.auth.dto.AuthDtos.*;
 import uz.gidrogo.modules.client.Client;
@@ -103,6 +104,11 @@ public class AuthService {
         loginRateLimiter.checkAllowed(rateKey, ip);
 
         Optional<User> userOpt = userRepository.findByUsernameOrPhone(identifier, altPhone, normalizedPhone);
+        if (userOpt.isPresent() && userOpt.get().getPasswordHash() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "TELEGRAM_AUTH_REQUIRED",
+                    "Ushbu hisob Telegram orqali ro'yxatdan o'tgan. Iltimos, Telegram Mini App (@GidroGoBot) orqali kiring");
+        }
+
         boolean passwordMatches = userOpt.isPresent()
                 && passwordEncoder.matches(request.getPassword(), userOpt.get().getPasswordHash());
 
@@ -233,6 +239,8 @@ public class AuthService {
         if (farm.getStatus() == FarmStatus.BLOCKED || farm.getStatus() == FarmStatus.INACTIVE) {
             throw new BadRequestException("Tanlangan firma vaqtincha yangi mijozlarni qabul qilmaydi");
         }
+
+        PasswordPolicy.validate(request.getPassword(), "password");
 
         User user = User.builder()
                 .farmId(farm.getId())

@@ -34,6 +34,8 @@ public class ClientService {
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
     private final RatingService ratingService;
+    private final uz.gidrogo.modules.bottle.ClientBottleBalanceRepository bottleBalanceRepository;
+    private final uz.gidrogo.modules.auth.RefreshTokenService refreshTokenService;
 
     public List<NearbyFarmResponse> getNearbyFarms(double clientLat, double clientLon) {
         List<Farm> activeFarms = farmRepository.findAllByStatus(FarmStatus.ACTIVE);
@@ -461,6 +463,93 @@ public class ClientService {
                 .addresses(addressResponses)
                 .recentOrders(recentOrderSummaries)
                 .build();
+    }
+
+    @Transactional
+    public AddressResponse updateAddress(Long addressId, uz.gidrogo.modules.auth.dto.TelegramMiniAppDtos.AddressUpdateRequest request) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        Client client = clientRepository.findByUserId(userId)
+                .orElseThrow(() -> uz.gidrogo.common.ApiException.notFound("CLIENT_NOT_FOUND", "Mijoz profili topilmadi"));
+
+        ClientAddress address = addressRepository.findById(addressId)
+                .orElseThrow(() -> uz.gidrogo.common.ApiException.notFound("ADDRESS_NOT_FOUND", "Manzil topilmadi"));
+
+        if (!address.getClientId().equals(client.getId())) {
+            throw uz.gidrogo.common.ApiException.forbidden("FORBIDDEN", "Ushbu manzil sizga tegishli emas");
+        }
+
+        if (request.isDefault() && !address.isDefault()) {
+            addressRepository.findAllByClientId(client.getId()).forEach(a -> {
+                if (a.isDefault()) {
+                    a.setDefault(false);
+                    addressRepository.save(a);
+                }
+            });
+        }
+
+        address.setAddress(request.getAddress().trim());
+        if (request.getLabel() != null) address.setLabel(request.getLabel().trim());
+        if (request.getLatitude() != null) address.setLatitude(BigDecimal.valueOf(request.getLatitude()));
+        if (request.getLongitude() != null) address.setLongitude(BigDecimal.valueOf(request.getLongitude()));
+        address.setDefault(request.isDefault());
+
+        address = addressRepository.save(address);
+        return mapToAddressResponse(address);
+    }
+
+    @Transactional
+    public void deleteAddress(Long addressId) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        Client client = clientRepository.findByUserId(userId)
+                .orElseThrow(() -> uz.gidrogo.common.ApiException.notFound("CLIENT_NOT_FOUND", "Mijoz profili topilmadi"));
+
+        ClientAddress address = addressRepository.findById(addressId)
+                .orElseThrow(() -> uz.gidrogo.common.ApiException.notFound("ADDRESS_NOT_FOUND", "Manzil topilmadi"));
+
+        if (!address.getClientId().equals(client.getId())) {
+            throw uz.gidrogo.common.ApiException.forbidden("FORBIDDEN", "Ushbu manzil sizga tegishli emas");
+        }
+
+        addressRepository.delete(address);
+    }
+
+    @Transactional
+    public void deleteClientAccount() {
+        Long userId = SecurityUtils.getCurrentUserId();
+        Client client = clientRepository.findByUserId(userId)
+                .orElseThrow(() -> uz.gidrogo.common.ApiException.notFound("CLIENT_NOT_FOUND", "Mijoz profili topilmadi"));
+
+        // 1. Faol buyurtmalar tekshiruvi (ASSIGNED, ON_THE_WAY, NEARBY, PENDING, DELIVERED)
+        boolean hasActiveOrders = orderRepository.findAllByClientIdOrderByCreatedAtDesc(client.getId()).stream()
+                .anyMatch(o -> o.getStatus() != uz.gidrogo.modules.order.OrderStatus.COMPLETED
+                        && o.getStatus() != uz.gidrogo.modules.order.OrderStatus.CANCELLED
+                        && o.getStatus() != uz.gidrogo.modules.order.OrderStatus.RETURNED);
+        if (hasActiveOrders) {
+            throw uz.gidrogo.common.ApiException.conflict("ACTIVE_ORDERS_EXIST",
+                    "Faol buyurtmalaringiz mavjud bo'lgan paytda hisobni o'chirib bo'lmaydi");
+        }
+
+        // 2. Idishlar balansi tekshiruvi
+        int bottleBalance = bottleBalanceRepository.findAllByClientId(client.getId()).stream()
+                .mapToInt(b -> b.getBalance() != null ? b.getBalance() : 0)
+                .sum();
+        if (bottleBalance != 0) {
+            throw uz.gidrogo.common.ApiException.conflict("BOTTLE_BALANCE_NOT_ZERO",
+                    "Idish balansingiz 0 bo'lishi shart (joriy balans: " + bottleBalance + " ta). Hisobni o'chirishdan avval idishlarni topshiring.");
+        }
+
+        // 3. Shaxsiy ma'lumotlarni anonimlashtirish (buyurtmalar va moliya o'chirilmaydi!)
+        User user = userRepository.findById(userId).orElseThrow();
+        user.setStatus("DELETED");
+        user.setFullName("O'chirilgan mijoz #" + user.getId());
+        user.setPhone("deleted_" + user.getId() + "_" + System.currentTimeMillis());
+        user.setUsername(null);
+        user.setEmail(null);
+        user.setAvatarUrl(null);
+        userRepository.save(user);
+
+        // Barcha faol sessiyalarni bekor qilish
+        refreshTokenService.revokeAll(userId);
     }
 
     private AddressResponse mapToAddressResponse(ClientAddress a) {

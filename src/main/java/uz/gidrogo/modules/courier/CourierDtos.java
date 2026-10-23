@@ -37,6 +37,7 @@ public class CourierDtos {
         private String status;      // OK
         private boolean nearbyTriggered; // Agar biron buyurtmaga 500m yaqin bo'lsa true
         private Long nearbyOrderId; // Qaysi buyurtmaga yaqinlashdi
+        private Double distanceMeters; // Masofa metrda (S-9)
     }
 
     @Data

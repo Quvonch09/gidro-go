@@ -29,19 +29,23 @@ public class StaffService {
             throw new BadRequestException("Ferma identifikatori aniqlanmadi");
         }
 
-        if (request.getRole() != Role.MANAGER && request.getRole() != Role.COURIER) {
-            throw new BadRequestException("Boss faqat Manager yoki Dastavkachi (COURIER) yarata oladi");
+        if (request.getRole() != StaffRole.MANAGER && request.getRole() != StaffRole.COURIER) {
+            throw uz.gidrogo.common.ApiException.unprocessable("INVALID_ROLE", "role",
+                    "Boss faqat Manager yoki Dastavkachi (COURIER) yarata oladi");
         }
 
-        if (userRepository.findByPhone(request.getPhone()).isPresent()) {
-            throw new BadRequestException("Ushbu telefon raqamli xodim allaqachon mavjud");
+        String phone = uz.gidrogo.modules.auth.OtpService.normalizePhone(request.getPhone());
+        if (userRepository.findByPhone(phone).isPresent()) {
+            throw new uz.gidrogo.common.ConflictException("Ushbu telefon raqamli xodim allaqachon mavjud");
         }
+
+        Role actualRole = Role.valueOf(request.getRole().name());
 
         User staff = User.builder()
                 .farmId(farmId)
-                .role(request.getRole())
-                .fullName(request.getFullName())
-                .phone(request.getPhone())
+                .role(actualRole)
+                .fullName(request.getFullName().trim())
+                .phone(phone)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .shiftType(request.getShiftType() != null && !request.getShiftType().isBlank() ? request.getShiftType().trim() : "DAY")
                 .status("ACTIVE")

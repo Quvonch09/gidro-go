@@ -96,6 +96,7 @@ public class AuthDtos {
         @NotBlank(message = "Telefon raqam kiritilishi shart")
         private String phone;
 
+        @NotBlank(message = "Tasdiqlash tokeni (verificationToken) kiritilishi shart")
         private String verificationToken;
 
         @NotBlank(message = "Ism-familiya kiritilishi shart")

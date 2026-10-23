@@ -23,6 +23,9 @@ import java.util.concurrent.TimeUnit;
 public class TelegramBotService {
 
     private final TelegramUserRepository telegramUserRepository;
+    private final TelegramAccountRepository telegramAccountRepository;
+    private final TelegramPhoneVerificationRepository phoneVerificationRepository;
+    private final UserRepository userRepository;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -121,13 +124,46 @@ public class TelegramBotService {
         String lastName = message.path("from").path("last_name").asText("");
         String username = message.path("from").path("username").asText("");
 
-        // 1. Foydalanuvchi kontakt yuborgan holat (request_contact)
+        // 1. Foydalanuvchi kontakt yuborgan holat (request_contact - B-TG-3)
         if (message.has("contact")) {
             JsonNode contact = message.get("contact");
+            long contactUserId = contact.path("user_id").asLong(0);
+
+            // Anti-spoofing tekshiruvi: kontakt yuboruvchining o'ziga tegishli bo'lishi shart
+            if (contactUserId != 0 && contactUserId != fromId) {
+                log.warn("[TELEGRAM BOT] Contact spoofing attempt: fromId={}, contactUserId={}", fromId, contactUserId);
+                sendMessage(chatId, "⚠️ <b>Faqat o'zingizning telefon raqamingizni yuborishingiz mumkin!</b>", null);
+                return;
+            }
+
             String rawPhone = contact.path("phone_number").asText();
             String normalizedPhone = OtpService.normalizePhone(rawPhone);
 
-            // Bazada saqlash yoki yangilash
+            // 1. telegram_phone_verifications ga yozish (30 kun amal qiladi)
+            TelegramPhoneVerification verif = phoneVerificationRepository
+                    .findTopByTelegramIdAndPhoneAndExpiresAtAfter(fromId, normalizedPhone, Instant.now())
+                    .orElseGet(() -> TelegramPhoneVerification.builder()
+                            .telegramId(fromId)
+                            .phone(normalizedPhone)
+                            .build());
+            verif.setVerifiedAt(Instant.now());
+            verif.setExpiresAt(Instant.now().plus(30, java.time.temporal.ChronoUnit.DAYS));
+            phoneVerificationRepository.save(verif);
+
+            // 2. telegram_accounts ga bog'lash va mavjud User'ni tekshirish
+            TelegramAccount account = telegramAccountRepository.findByTelegramId(fromId)
+                    .orElseGet(() -> TelegramAccount.builder().telegramId(fromId).build());
+            account.setPhone(normalizedPhone);
+            account.setFirstName(firstName);
+            account.setLastName(lastName);
+            account.setUsername(username);
+            account.setUpdatedAt(Instant.now());
+
+            Optional<User> existingUserOpt = userRepository.findByPhone(normalizedPhone);
+            existingUserOpt.ifPresent(u -> account.setUserId(u.getId()));
+            telegramAccountRepository.save(account);
+
+            // 3. Eski telegram_users jadvali bilan ham moslik saqlanadi
             TelegramUser user = telegramUserRepository.findByTelegramId(fromId)
                     .orElseGet(() -> TelegramUser.builder().telegramId(fromId).build());
             user.setChatId(String.valueOf(chatId));
@@ -143,7 +179,8 @@ public class TelegramBotService {
                 redisTemplate.opsForValue().set("telegram:chat:" + normalizedPhone, String.valueOf(chatId), 30, TimeUnit.DAYS);
             } catch (Exception ignored) {}
 
-            log.info("[TELEGRAM BOT] Linked phone {} to Telegram chatId {}", normalizedPhone, chatId);
+            log.info("[TELEGRAM BOT] Linked phone {} to Telegram chatId {} (userId: {})",
+                    normalizedPhone, chatId, account.getUserId());
 
             // Agar ushbu raqam uchun kutilayotgan faol OTP kod mavjud bo'lsa, zudlik bilan jo'natamiz
             String activeCode = null;
@@ -152,14 +189,14 @@ public class TelegramBotService {
             } catch (Exception ignored) {}
 
             if (activeCode != null && !activeCode.isBlank()) {
-                String text = "✅ <b>Telefon raqamingiz muvaffaqiyatli bog'landi!</b> (" + normalizedPhone + ")\n\n" +
+                String text = "✅ <b>Telefon raqamingiz muvaffaqiyatli tasdiqlandi!</b> (" + normalizedPhone + ")\n\n" +
                         "🔐 GidroGo tasdiqlash kodingiz: <code>" + activeCode + "</code>\n\n" +
                         "⏱ Kod 2 daqiqa davomida amal qiladi.\n" +
                         "⚠️ Ushbu kodni hech kimga bermang!";
                 sendMessage(chatId, text, null);
             } else {
-                String text = "✅ <b>Telefon raqamingiz muvaffaqiyatli bog'landi!</b> (" + normalizedPhone + ")\n\n" +
-                        "Endi GidroGo ilovasida ro'yxatdan o'tish yoki kirishda tasdiqlash kodlari shu yerga yuboriladi.";
+                String text = "✅ <b>Telefon raqamingiz muvaffaqiyatli tasdiqlandi!</b> (" + normalizedPhone + ")\n\n" +
+                        "💧 Endi <b>GidroGo Mini App</b> orqali bemalol buyurtma berishingiz mumkin.";
                 sendMessage(chatId, text, null);
             }
             return;
