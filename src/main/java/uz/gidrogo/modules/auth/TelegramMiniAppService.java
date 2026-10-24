@@ -179,7 +179,7 @@ public class TelegramMiniAppService {
 
                 AuthResponse authUser = AuthResponse.builder()
                         .accessToken(accessToken)
-                        .refreshToken(refreshToken)
+                        .refreshToken(null)
                         .userId(user.getId())
                         .fullName(user.getFullName())
                         .phone(user.getPhone())
@@ -198,7 +198,7 @@ public class TelegramMiniAppService {
                         .lastName(tgUser.lastName())
                         .username(tgUser.username())
                         .token(accessToken)
-                        .refreshToken(refreshToken)
+                        .refreshToken(null)
                         .user(authUser)
                         .build();
             }
@@ -236,7 +236,7 @@ public class TelegramMiniAppService {
 
                 AuthResponse authUser = AuthResponse.builder()
                         .accessToken(accessToken)
-                        .refreshToken(refreshToken)
+                        .refreshToken(null)
                         .userId(existingUser.getId())
                         .fullName(existingUser.getFullName())
                         .phone(existingUser.getPhone())
@@ -255,7 +255,7 @@ public class TelegramMiniAppService {
                         .lastName(tgUser.lastName())
                         .username(tgUser.username())
                         .token(accessToken)
-                        .refreshToken(refreshToken)
+                        .refreshToken(null)
                         .user(authUser)
                         .build();
             }
@@ -327,21 +327,36 @@ public class TelegramMiniAppService {
             throw ApiException.badRequest("SESSION_EXPIRED", "Sessiya eskirgan. Iltimos, Mini Appni qayta oching.");
         }
 
-        // Telefonni tekshirish
-        if (phone == null && request.getPhone() != null && !request.getPhone().isBlank()) {
-            phone = OtpService.normalizePhone(request.getPhone());
-        }
-
-        if (phone == null) {
-            // telegram_phone_verifications dan qidirish
-            phone = phoneVerificationRepository.findTopByTelegramIdAndExpiresAtAfterOrderByVerifiedAtDesc(telegramId, Instant.now())
+        // 1. Telefon raqami FAQAT tasdiqlangan kontaktdan olinadi (P0 - 1)
+        String verifiedPhone = phone; // tempToken'dan olingan telefon
+        if (verifiedPhone == null) {
+            // telegram_phone_verifications dan qidirish (30 kun ichida tasdiqlangan bo'lishi shart)
+            verifiedPhone = phoneVerificationRepository.findTopByTelegramIdAndExpiresAtAfterOrderByVerifiedAtDesc(telegramId, Instant.now())
                     .map(TelegramPhoneVerification::getPhone)
                     .orElse(null);
         }
 
-        if (phone == null) {
+        if (verifiedPhone == null) {
             throw ApiException.badRequest("PHONE_NOT_VERIFIED",
                     "Telefon raqamingiz tasdiqlanmagan. Iltimos, Telegram bot (@GidroGoBot) orqali kontaktingizni yuboring.");
+        }
+
+        // Agar so'rovda boshqa telefon kiritilgan bo'lsa -> 409 PHONE_MISMATCH
+        if (request.getPhone() != null && !request.getPhone().isBlank()) {
+            String requestedPhone = OtpService.normalizePhone(request.getPhone());
+            if (!requestedPhone.equals(verifiedPhone)) {
+                throw ApiException.conflict("PHONE_MISMATCH",
+                        "Kiritilgan telefon raqam Telegram orqali tasdiqlangan kontaktga mos kelmaydi");
+            }
+        }
+
+        phone = verifiedPhone;
+
+        // Xodim raqami tekshiruvi (P1 - 6): Xodim raqamiga mijoz hisobi ochilmaydi
+        Optional<User> existingUserCheck = userRepository.findByPhone(phone);
+        if (existingUserCheck.isPresent() && existingUserCheck.get().getRole() != Role.CLIENT) {
+            throw ApiException.conflict("STAFF_PHONE_NOT_ALLOWED",
+                    "Ushbu telefon raqami xodim (" + existingUserCheck.get().getRole() + ") hisobiga biriktirilgan. Mijoz sifatida kirib bo'lmaydi.");
         }
 
         // Ferma tekshiruvi
@@ -418,7 +433,7 @@ public class TelegramMiniAppService {
 
         return AuthResponse.builder()
                 .accessToken(accessToken)
-                .refreshToken(refreshToken)
+                .refreshToken(null)
                 .userId(user.getId())
                 .fullName(user.getFullName())
                 .phone(user.getPhone())

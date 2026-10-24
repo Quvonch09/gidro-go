@@ -238,9 +238,9 @@ public class BossService {
 
         List<Order> orders = orderRepository.findAllByFarmIdAndCreatedAtBetweenOrderByCreatedAtDesc(targetFarmId, startInstant, endInstant);
 
-        long completed = orders.stream().filter(o -> o.getStatus() == OrderStatus.COMPLETED || o.getStatus() == OrderStatus.DELIVERED).count();
-        long delivering = orders.stream().filter(o -> o.getStatus() == OrderStatus.ON_THE_WAY || o.getStatus() == OrderStatus.NEARBY).count();
-        long pending = orders.stream().filter(o -> o.getStatus() == OrderStatus.NEW || o.getStatus() == OrderStatus.SEARCHING || o.getStatus() == OrderStatus.ASSIGNED).count();
+        long completed = orders.stream().filter(o -> o.getStatus() == OrderStatus.COMPLETED).count();
+        long delivering = orders.stream().filter(o -> o.getStatus() == OrderStatus.ON_THE_WAY || o.getStatus() == OrderStatus.NEARBY || o.getStatus() == OrderStatus.DELIVERED).count();
+        long pending = orders.stream().filter(o -> o.getStatus() == OrderStatus.NEW || o.getStatus() == OrderStatus.SEARCHING || o.getStatus() == OrderStatus.ASSIGNED || o.getStatus() == OrderStatus.PREPARING).count();
         long total = orders.size();
 
         double completionPercent = total > 0 ? (double) completed / total * 100.0 : 100.0;
@@ -255,7 +255,9 @@ public class BossService {
         while (!cur.isAfter(today)) {
             final LocalDate checkDate = cur;
             long dayOrders = orders.stream()
-                    .filter(o -> o.getCreatedAt() != null && o.getCreatedAt().atZone(zone).toLocalDate().equals(checkDate))
+                    .filter(o -> o.getStatus() == OrderStatus.COMPLETED
+                            && o.getCreatedAt() != null
+                            && o.getCreatedAt().atZone(zone).toLocalDate().equals(checkDate))
                     .count();
             double volumeKl = (dayOrders * 18.9) / 1000.0;
 

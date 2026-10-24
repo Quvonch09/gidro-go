@@ -82,3 +82,9 @@ app:
     login:
       max-failures: 5
       window-minutes: 15
+
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${SWAGGER_UI_ENABLED:false}
