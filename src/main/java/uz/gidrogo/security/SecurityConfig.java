@@ -34,8 +34,8 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
 
-    /** BE-06 / SEC-01: prod profilida springdoc o'chiriladi va Swagger yo'llari ochiq bo'lmaydi. */
-    @org.springframework.beans.factory.annotation.Value("${springdoc.api-docs.enabled:false}")
+    /** Swagger va OpenAPI hujjatlari */
+    @org.springframework.beans.factory.annotation.Value("${springdoc.api-docs.enabled:true}")
     private boolean apiDocsEnabled;
 
     @org.springframework.beans.factory.annotation.Value("${app.cors.allowed-origins:https://web.telegram.org,https://*.telegram.org,https://169.58.215.170,http://169.58.215.170,https://169.58.215.170:8080,http://169.58.215.170:8080,http://localhost:*,https://localhost:*,http://127.0.0.1:*}")
@@ -63,16 +63,14 @@ public class SecurityConfig {
                         // Allow all preflight OPTIONS requests for CORS
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // Public endpoints
+                        // Public endpoints: Asosiy sahifa, Swagger UI va OpenAPI hujjatlari
+                        .requestMatchers("/", "/error", "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/auth/**", "/api/client/telegram/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/client/available-farms").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/client/farms", "/api/client/farms/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/client/banners", "/api/client/banners/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/files/view/**").permitAll()
                         .requestMatchers("/ws/**", "/api/telegram/**").permitAll()
-                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html")
-                        .access((authentication, context) ->
-                                new org.springframework.security.authorization.AuthorizationDecision(apiDocsEnabled))
 
                         // Role-based endpoints (RBAC matrix)
                         .requestMatchers("/api/superadmin/**").hasRole("SUPER_ADMIN")
