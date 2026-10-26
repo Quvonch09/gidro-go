@@ -70,8 +70,14 @@ telegram:
     token: ${TELEGRAM_BOT_TOKEN:8612254072:AAGe_T4kzilZlTVUyUFWpoBEpvGEe7lUQ_g}
     bot-username: "GidroGobot"
     mock-mode: false   # Agar true bo'lsa yoki token bo'sh bo'lsa, konsolga va javobga log qilinadi
+    secret-token: ${TELEGRAM_WEBHOOK_SECRET:GidroGo_TgSecret_2026_SecureWebHookToken_x91A}
+    webhook:
+      enabled: ${TELEGRAM_WEBHOOK_ENABLED:true}
+      url: ${TELEGRAM_WEBHOOK_URL:https://169.58.215.170/api/telegram/webhook}
 
 app:
+  cors:
+    allowed-origins: ${GIDROGO_CORS_ORIGINS:https://gidrogo-miniapp.pages.dev,https://*.gidrogo-miniapp.pages.dev,https://web.telegram.org,https://*.telegram.org,https://169.58.215.170,http://169.58.215.170,http://localhost:5173,http://localhost:3000}
   courier:
     assignment-timeout-seconds: 30
     nearby-distance-meters: 500.0

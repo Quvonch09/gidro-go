@@ -38,6 +38,15 @@ public class TelegramBotService {
     @Value("${telegram.bot.mock-mode:false}")
     private boolean mockMode;
 
+    @Value("${telegram.bot.webhook.enabled:true}")
+    private boolean webhookEnabled;
+
+    @Value("${telegram.bot.webhook.url:https://169.58.215.170/api/telegram/webhook}")
+    private String webhookUrl;
+
+    @Value("${telegram.bot.secret-token:${app.telegram.webhook-secret:GidroGo_TgSecret_2026_SecureWebHookToken_x91A}}")
+    private String webhookSecretToken;
+
     private volatile boolean running = false;
     private Thread pollingThread;
     private RestTemplate restTemplate;
@@ -53,6 +62,30 @@ public class TelegramBotService {
         factory.setConnectTimeout(10000);
         factory.setReadTimeout(30000);
         this.restTemplate = new RestTemplate(factory);
+
+        if (webhookEnabled && webhookUrl != null && !webhookUrl.isBlank()) {
+            try {
+                String setWebhookUrl = "https://api.telegram.org/bot" + botToken + "/setWebhook";
+                org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+                headers.setContentType(org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED);
+
+                org.springframework.util.MultiValueMap<String, String> map = new org.springframework.util.LinkedMultiValueMap<>();
+                map.add("url", webhookUrl);
+                if (webhookSecretToken != null && !webhookSecretToken.isBlank()) {
+                    map.add("secret_token", webhookSecretToken);
+                }
+                map.add("allowed_updates", "[\"message\"]");
+
+                org.springframework.http.HttpEntity<org.springframework.util.MultiValueMap<String, String>> request =
+                        new org.springframework.http.HttpEntity<>(map, headers);
+                ResponseEntity<String> res = restTemplate.postForEntity(setWebhookUrl, request, String.class);
+                log.info("[TELEGRAM BOT] Webhook registered at {}: {}", webhookUrl, res.getBody());
+            } catch (Exception e) {
+                log.warn("[TELEGRAM BOT] Could not set webhook: {}", e.getMessage());
+            }
+            log.info("[TELEGRAM BOT] Operating in Webhook mode for @{} (polling disabled).", botUsername);
+            return;
+        }
 
         // Delete any existing webhook so long-polling receives all updates
         try {

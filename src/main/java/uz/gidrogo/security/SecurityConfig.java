@@ -38,7 +38,7 @@ public class SecurityConfig {
     @org.springframework.beans.factory.annotation.Value("${springdoc.api-docs.enabled:true}")
     private boolean apiDocsEnabled;
 
-    @org.springframework.beans.factory.annotation.Value("${app.cors.allowed-origins:https://web.telegram.org,https://*.telegram.org,https://169.58.215.170,http://169.58.215.170,https://169.58.215.170:8080,http://169.58.215.170:8080,http://localhost:*,https://localhost:*,http://127.0.0.1:*}")
+    @org.springframework.beans.factory.annotation.Value("${app.cors.allowed-origins:https://gidrogo-miniapp.pages.dev,https://*.gidrogo-miniapp.pages.dev,https://web.telegram.org,https://*.telegram.org,https://169.58.215.170,http://169.58.215.170,https://169.58.215.170:8080,http://169.58.215.170:8080,http://localhost:*,https://localhost:*,http://127.0.0.1:*}")
     private String allowedOrigins;
 
     @Bean
@@ -107,9 +107,9 @@ public class SecurityConfig {
                 .toList();
         configuration.setAllowedOriginPatterns(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"));
-        configuration.setAllowedHeaders(List.of("*"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "Idempotency-Key", "X-Requested-With", "X-Telegram-Bot-Api-Secret-Token", "*"));
         configuration.setExposedHeaders(List.of("Authorization", "Content-Type", "X-Total-Count"));
-        configuration.setAllowCredentials(true);
+        configuration.setAllowCredentials(false);
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

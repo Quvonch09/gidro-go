@@ -299,45 +299,44 @@ public class TelegramMiniAppService {
         String lastName = null;
         String username = null;
 
-        // tempToken orqali sessiya ma'lumotlarini tiklash
-        if (request.getTempToken() != null && !request.getTempToken().isBlank()) {
-            String cached = redisTemplate.opsForValue().get("tg:session:" + request.getTempToken());
-            if (cached != null) {
-                try {
-                    JsonNode node = objectMapper.readTree(cached);
-                    telegramId = node.path("telegramId").asLong();
-                    phone = node.path("phone").asText(null);
-                    firstName = node.path("firstName").asText(null);
-                    lastName = node.path("lastName").asText(null);
-                    username = node.path("username").asText(null);
-                } catch (Exception ignored) {}
-            }
+        // tempToken orqali sessiya ma'lumotlarini tiklash (T-1: majburiy va bir martalik)
+        if (request.getTempToken() == null || request.getTempToken().isBlank()) {
+            throw ApiException.conflict("TG_PHONE_NOT_VERIFIED",
+                    "Ro'yxatdan o'tish uchun telefon raqami tasdiqlanmagan (tempToken majburiy). Iltimos, Telegram bot (@GidroGoBot) orqali kontaktingizni ulashing.");
         }
 
-        // Agar tempToken bo'lmasa, initData'dan olish
-        if (telegramId == null && request.getInitData() != null && !request.getInitData().isBlank()) {
-            ParsedTelegramUser tgUser = validateAndParseInitData(request.getInitData());
-            telegramId = tgUser.id();
-            firstName = tgUser.firstName();
-            lastName = tgUser.lastName();
-            username = tgUser.username();
+        String cached = redisTemplate.opsForValue().get("tg:session:" + request.getTempToken());
+        if (cached == null || cached.isBlank()) {
+            throw ApiException.conflict("TG_PHONE_NOT_VERIFIED",
+                    "Ro'yxatdan o'tish sessiyasi eskirgan yoki noto'g'ri. Iltimos, qaytadan Mini App orqali kontaktingizni tasdiqlang.");
         }
 
-        if (telegramId == null) {
-            throw ApiException.badRequest("SESSION_EXPIRED", "Sessiya eskirgan. Iltimos, Mini Appni qayta oching.");
+        try {
+            JsonNode node = objectMapper.readTree(cached);
+            telegramId = node.path("telegramId").asLong(0);
+            phone = node.path("phone").asText(null);
+            firstName = node.path("firstName").asText(null);
+            lastName = node.path("lastName").asText(null);
+            username = node.path("username").asText(null);
+        } catch (Exception e) {
+            throw ApiException.conflict("TG_PHONE_NOT_VERIFIED", "Sessiya ma'lumotlarini o'qishda xatolik");
         }
 
-        // 1. Telefon raqami FAQAT tasdiqlangan kontaktdan olinadi (P0 - 1)
-        String verifiedPhone = phone; // tempToken'dan olingan telefon
-        if (verifiedPhone == null) {
+        if (telegramId == null || telegramId == 0) {
+            throw ApiException.conflict("TG_PHONE_NOT_VERIFIED", "Telegram foydalanuvchisi aniqlanmadi.");
+        }
+
+        // 1. Telefon raqami FAQAT tasdiqlangan kontaktdan olinadi (P0 - 3 / T-1)
+        String verifiedPhone = phone; // tempToken sessiyasidagi tasdiqlangan telefon
+        if (verifiedPhone == null || verifiedPhone.isBlank()) {
             // telegram_phone_verifications dan qidirish (30 kun ichida tasdiqlangan bo'lishi shart)
             verifiedPhone = phoneVerificationRepository.findTopByTelegramIdAndExpiresAtAfterOrderByVerifiedAtDesc(telegramId, Instant.now())
                     .map(TelegramPhoneVerification::getPhone)
                     .orElse(null);
         }
 
-        if (verifiedPhone == null) {
-            throw ApiException.badRequest("PHONE_NOT_VERIFIED",
+        if (verifiedPhone == null || verifiedPhone.isBlank()) {
+            throw ApiException.conflict("TG_PHONE_NOT_VERIFIED",
                     "Telefon raqamingiz tasdiqlanmagan. Iltimos, Telegram bot (@GidroGoBot) orqali kontaktingizni yuboring.");
         }
 
@@ -425,6 +424,13 @@ public class TelegramMiniAppService {
         account.setUsername(username);
         account.setUpdatedAt(Instant.now());
         telegramAccountRepository.save(account);
+
+        // tempToken bir martalik: muvaffaqiyatli ro'yxatdan o'tgach darhol o'chiriladi (T-1)
+        try {
+            redisTemplate.delete("tg:session:" + request.getTempToken());
+        } catch (Exception e) {
+            log.warn("Could not delete tempToken {}: {}", request.getTempToken(), e.getMessage());
+        }
 
         // JWT tokenlar yaratish
         String identifier = user.getUsername() != null ? user.getUsername() : user.getPhone();
