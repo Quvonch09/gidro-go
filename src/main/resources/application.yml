@@ -1,5 +1,6 @@
 server:
   port: 8080
+  forward-headers-strategy: framework
   compression:
     enabled: true
     mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json
