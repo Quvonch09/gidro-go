@@ -38,7 +38,7 @@ public class SecurityConfig {
     @org.springframework.beans.factory.annotation.Value("${springdoc.api-docs.enabled:true}")
     private boolean apiDocsEnabled;
 
-    @org.springframework.beans.factory.annotation.Value("${app.cors.allowed-origins:https://gidrogo-miniapp.pages.dev,https://*.gidrogo-miniapp.pages.dev,https://web.telegram.org,https://*.telegram.org,https://169.58.215.170,http://169.58.215.170,https://169.58.215.170:8080,http://169.58.215.170:8080,http://localhost:*,https://localhost:*,http://127.0.0.1:*}")
+    @org.springframework.beans.factory.annotation.Value("${app.cors.allowed-origins:https://gidrogo-project.vercel.app,https://*.vercel.app,https://gidrogo-miniapp.pages.dev,https://*.gidrogo-miniapp.pages.dev,https://*.pages.dev,https://web.telegram.org,https://*.telegram.org,https://169.58.215.170,http://169.58.215.170,https://169.58.215.170:8080,http://169.58.215.170:8080,http://localhost:*,https://localhost:*,http://127.0.0.1:*}")
     private String allowedOrigins;
 
     @Bean
@@ -107,9 +107,9 @@ public class SecurityConfig {
                 .toList();
         configuration.setAllowedOriginPatterns(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "Idempotency-Key", "X-Requested-With", "X-Telegram-Bot-Api-Secret-Token", "*"));
+        configuration.setAllowedHeaders(List.of("*"));
         configuration.setExposedHeaders(List.of("Authorization", "Content-Type", "X-Total-Count"));
-        configuration.setAllowCredentials(false);
+        configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -121,5 +121,25 @@ public class SecurityConfig {
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public CorsFilter corsFilter() {
         return new CorsFilter(corsConfigurationSource());
+    }
+
+    @Bean
+    public org.springframework.web.servlet.config.annotation.WebMvcConfigurer corsConfigurer() {
+        return new org.springframework.web.servlet.config.annotation.WebMvcConfigurer() {
+            @Override
+            public void addCorsMappings(org.springframework.web.servlet.config.annotation.CorsRegistry registry) {
+                List<String> origins = java.util.Arrays.stream(allowedOrigins.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .toList();
+                registry.addMapping("/**")
+                        .allowedOriginPatterns(origins.toArray(new String[0]))
+                        .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD")
+                        .allowedHeaders("*")
+                        .exposedHeaders("Authorization", "Content-Type", "X-Total-Count")
+                        .allowCredentials(true)
+                        .maxAge(3600L);
+            }
+        };
     }
 }
