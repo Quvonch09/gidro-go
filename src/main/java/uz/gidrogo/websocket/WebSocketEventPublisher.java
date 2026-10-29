@@ -16,6 +16,7 @@ public class WebSocketEventPublisher {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final uz.gidrogo.modules.notification.ClientNotificationRepository clientNotificationRepository;
+    private final uz.gidrogo.modules.client.ClientRepository clientRepository;
 
     /**
      * Yangi buyurtma yaratilganda ferma menejeri va bossiga xabar yuborish
@@ -60,6 +61,11 @@ public class WebSocketEventPublisher {
                     .farmId(farmId)
                     .data(order)
                     .build());
+        }
+
+        // 3. Mijozga buyurtma holati yangilangani (/user/queue/orders va /topic/orders/{id}/tracking)
+        if (order.getClientId() != null) {
+            sendClientStatusTrackingMessage(order.getClientId(), order);
         }
     }
 
@@ -125,6 +131,9 @@ public class WebSocketEventPublisher {
             } catch (Exception e) {
                 log.warn("Could not save client notification for order {}: {}", order.getId(), e.getMessage());
             }
+
+            // Band 19: /user/queue/orders va /topic/orders/{id}/tracking ga holat yangilanishi xabari
+            sendClientStatusTrackingMessage(clientId, order);
         }
 
         // 4. Bitta buyurtma sahifasidagi jonli obuna
@@ -247,12 +256,55 @@ public class WebSocketEventPublisher {
     }
 
     /**
-     * Mijoz xaritasiga kuryerning jonli koordinatalari va ETA masofasini yuborish (/topic/orders/{orderId}/tracking)
+     * Mijoz xaritasiga kuryerning jonli koordinatalari va ETA masofasini yuborish
+     * (/user/queue/orders va /topic/orders/{orderId}/tracking)
      */
     public void publishClientOrderLiveTracking(Long orderId, uz.gidrogo.modules.order.dto.OrderTrackingDtos.OrderLiveTrackingWsMessage message) {
+        publishClientOrderLiveTracking(orderId, null, message);
+    }
+
+    public void publishClientOrderLiveTracking(Long orderId, Long clientId, uz.gidrogo.modules.order.dto.OrderTrackingDtos.OrderLiveTrackingWsMessage message) {
         if (orderId == null || message == null) return;
         String topic = "/topic/orders/" + orderId + "/tracking";
         send(topic, message);
+
+        if (clientId != null) {
+            try {
+                clientRepository.findById(clientId).ifPresent(client -> {
+                    if (client.getUserId() != null) {
+                        messagingTemplate.convertAndSendToUser(
+                                String.valueOf(client.getUserId()),
+                                "/queue/orders",
+                                message
+                        );
+                    }
+                });
+            } catch (Exception e) {
+                log.warn("User destination /user/queue/orders ga yuborishda xatolik: orderId={}, error={}", orderId, e.getMessage());
+            }
+        }
+    }
+
+    private void sendClientStatusTrackingMessage(Long clientId, OrderResponse order) {
+        if (clientId == null || order == null || order.getId() == null || order.getStatus() == null) return;
+        try {
+            java.time.Instant statusAt = java.time.Instant.now();
+            if (order.getStatusHistory() != null && !order.getStatusHistory().isEmpty()) {
+                var last = order.getStatusHistory().get(order.getStatusHistory().size() - 1);
+                if (last.getAt() != null) {
+                    statusAt = last.getAt();
+                }
+            }
+            uz.gidrogo.modules.order.dto.OrderTrackingDtos.OrderLiveTrackingWsMessage msg =
+                    uz.gidrogo.modules.order.dto.OrderTrackingDtos.OrderLiveTrackingWsMessage.builder()
+                            .orderId(order.getId())
+                            .status(order.getStatus().name())
+                            .timestamp(statusAt)
+                            .build();
+            publishClientOrderLiveTracking(order.getId(), clientId, msg);
+        } catch (Exception e) {
+            log.warn("Could not publish status tracking message for order {}: {}", order.getId(), e.getMessage());
+        }
     }
 
     private void send(String destination, Object payload) {

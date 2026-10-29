@@ -171,6 +171,7 @@ public class OrderTrackingDtos {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     @Schema(description = "WebSocket orqali real-time uzatiladigan jonli kuzatuv xabari")
     public static class OrderLiveTrackingWsMessage {
         private Long orderId;

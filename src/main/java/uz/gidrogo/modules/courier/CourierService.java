@@ -357,10 +357,11 @@ public class CourierService {
             }
         }
 
-        // Mijoz uchun jonli kuzatuv xabari (/topic/orders/{orderId}/tracking)
+        // Mijoz uchun jonli kuzatuv xabari (/user/queue/orders va /topic/orders/{orderId}/tracking)
+        // Band 19: kuryer koordinatasi faqat ON_THE_WAY va NEARBY holatlarida yuboriladi
         try {
             List<Order> activeOrders = orderRepository.findAllByCourierIdAndStatusIn(
-                    courierId, List.of(OrderStatus.ASSIGNED, OrderStatus.ON_THE_WAY, OrderStatus.NEARBY));
+                    courierId, List.of(OrderStatus.ON_THE_WAY, OrderStatus.NEARBY));
             for (Order o : activeOrders) {
                 if (o.getLatitude() != null && o.getLongitude() != null) {
                     double distMeters = GeoUtils.calculateDistanceMeters(
@@ -376,14 +377,13 @@ public class CourierService {
                             .courierLatitude(request.getLatitude())
                             .courierLongitude(request.getLongitude())
                             .bearing(bearing)
-                            .speedKmh(speedKmh)
                             .distanceMeters(Math.round(distMeters * 10.0) / 10.0)
                             .etaMinutes(eta)
                             .isNearby(isNearby)
                             .timestamp(Instant.now())
                             .build();
 
-                    eventPublisher.publishClientOrderLiveTracking(o.getId(), msg);
+                    eventPublisher.publishClientOrderLiveTracking(o.getId(), o.getClientId(), msg);
                 }
             }
         } catch (Exception e) {

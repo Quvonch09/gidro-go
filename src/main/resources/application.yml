@@ -95,7 +95,7 @@ app:
 
 springdoc:
   api-docs:
-    enabled: ${API_DOCS_ENABLED:false}
+    enabled: ${API_DOCS_ENABLED:true}
   swagger-ui:
     enabled: ${SWAGGER_UI_ENABLED:false}
     path: /swagger-ui.html
