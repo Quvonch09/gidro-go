@@ -1,8 +1,12 @@
 package uz.gidrogo.modules.order.dto;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -31,6 +35,8 @@ public class OrderDtos {
         @NotNull(message = "To'lov usuli (CASH yoki ONLINE) kiritilishi shart")
         private PaymentMethod paymentMethod;
 
+        @Size(max = 300, message = "Izoh ko'pi bilan 300 ta belgidan oshmasligi kerak")
+        @Schema(description = "Mijoz izohi (maksimal 300 ta belgi)", maxLength = 300)
         private String clientComment;
         private String deliverySlot;
         private Integer emptyBottlesReturned;
@@ -66,8 +72,10 @@ public class OrderDtos {
         private Long productId;
 
         @NotNull(message = "Miqdor kiritilishi shart")
-        @Positive(message = "Miqdor musbat son bo'lishi kerak")
-        private BigDecimal quantity;
+        @Min(value = 1, message = "Miqdor kamida 1 bo'lishi kerak")
+        @Max(value = 99, message = "Miqdor ko'pi bilan 99 bo'lishi mumkin")
+        @Schema(description = "Mahsulot soni (butun son, 1 dan 99 gacha)", minimum = "1", maximum = "99")
+        private Integer quantity;
     }
 
     @Data
@@ -129,6 +137,8 @@ public class OrderDtos {
         private String deliverySlot;
         private Integer emptyBottlesReturned;
         private BigDecimal depositAmount;
+        @Size(max = 300, message = "Izoh ko'pi bilan 300 ta belgidan oshmasligi kerak")
+        @Schema(description = "Mijoz izohi (maksimal 300 ta belgi)", maxLength = 300)
         private String clientComment;
         private List<OrderItemResponse> items;
         private Integer deliverySequence;
@@ -146,6 +156,19 @@ public class OrderDtos {
         private Instant deliveredAt;
         private Instant completedAt;
         private Instant createdAt;
+        private List<StatusHistoryItem> statusHistory;
+        private Boolean reviewed;
+        private Instant reviewedAt;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StatusHistoryItem {
+        private String fromStatus;
+        private String status;
+        private Instant at;
     }
 
     @Data

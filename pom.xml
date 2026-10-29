@@ -90,6 +90,13 @@
             <version>${springdoc.version}</version>
         </dependency>
 
+        <!-- Firebase Admin SDK (FCM HTTP v1) -->
+        <dependency>
+            <groupId>com.google.firebase</groupId>
+            <artifactId>firebase-admin</artifactId>
+            <version>9.3.0</version>
+        </dependency>
+
         <!-- Utilities -->
         <dependency>
             <groupId>org.projectlombok</groupId>

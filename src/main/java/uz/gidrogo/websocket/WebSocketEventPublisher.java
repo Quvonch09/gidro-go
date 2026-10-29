@@ -15,6 +15,7 @@ import uz.gidrogo.websocket.WebSocketDtos.WsEvent;
 public class WebSocketEventPublisher {
 
     private final SimpMessagingTemplate messagingTemplate;
+    private final uz.gidrogo.modules.notification.ClientNotificationRepository clientNotificationRepository;
 
     /**
      * Yangi buyurtma yaratilganda ferma menejeri va bossiga xabar yuborish
@@ -100,6 +101,30 @@ public class WebSocketEventPublisher {
                     .farmId(farmId)
                     .data(order)
                     .build());
+
+            try {
+                String statusName = order.getStatus() != null ? order.getStatus().name() : "";
+                String title = switch (statusName) {
+                    case "ASSIGNED" -> "Kuryer biriktirildi";
+                    case "ON_THE_WAY" -> "Buyurtmangiz yo'lda";
+                    case "NEARBY" -> "Kuryer yaqinlashdi";
+                    case "DELIVERED" -> "Buyurtma yetkazildi";
+                    case "COMPLETED" -> "Buyurtma yakunlandi";
+                    case "CANCELLED" -> "Buyurtma bekor qilindi";
+                    default -> "Buyurtma holati yangilandi";
+                };
+                String msg = "Buyurtma #" + order.getOrderNumber() + ": " + title;
+                clientNotificationRepository.save(uz.gidrogo.modules.notification.ClientNotification.builder()
+                        .clientId(clientId)
+                        .title(title)
+                        .message(msg)
+                        .type("ORDER_STATUS")
+                        .referenceId(order.getId())
+                        .isRead(false)
+                        .build());
+            } catch (Exception e) {
+                log.warn("Could not save client notification for order {}: {}", order.getId(), e.getMessage());
+            }
         }
 
         // 4. Bitta buyurtma sahifasidagi jonli obuna

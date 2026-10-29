@@ -12,6 +12,8 @@ import uz.gidrogo.modules.client.ClientDtos.*;
 import uz.gidrogo.modules.farm.dto.FarmDtos.FarmResponse;
 import uz.gidrogo.modules.order.OrderService;
 import uz.gidrogo.modules.order.dto.OrderDtos.*;
+import uz.gidrogo.modules.notification.NotificationService;
+import uz.gidrogo.modules.notification.dto.NotificationDtos.*;
 import uz.gidrogo.modules.order.dto.OrderTrackingDtos.ClientOrderTrackingResponse;
 import uz.gidrogo.modules.order.dto.OrderTrackingDtos.OrderRouteResponse;
 import uz.gidrogo.modules.product.ProductService;
@@ -32,6 +34,7 @@ public class ClientController {
     private final OrderService orderService;
     private final RatingService ratingService;
     private final ClientOrderTrackingService clientOrderTrackingService;
+    private final NotificationService notificationService;
 
     @GetMapping({"/farms", "/farms/available", "/available-farms"})
     @Operation(summary = "Shahar, tuman va lokatsiya bo'yicha mavjud fermalar ro'yxatini olish (Ochiq API)")
@@ -170,4 +173,37 @@ public class ClientController {
         clientService.deleteClientAccount();
         return ResponseEntity.ok(ApiResponse.ok("Hisobingiz muvaffaqiyatli o'chirildi", "OK"));
     }
+
+    // --- Mijoz bildirishnomalari (Band 11.2) ---
+
+    @GetMapping("/notifications")
+    @Operation(summary = "Mijoz bildirishnomalari ro'yxati (sahifalangan)")
+    public ResponseEntity<ApiResponse<NotificationPageResponse>> getNotifications(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "false") boolean unreadOnly) {
+        return ResponseEntity.ok(ApiResponse.ok("Bildirishnomalar ro'yxati",
+                notificationService.getClientNotifications(page, size, unreadOnly)));
+    }
+
+    @GetMapping("/notifications/unread-count")
+    @Operation(summary = "Mijoz o'qilmagan bildirishnomalari soni")
+    public ResponseEntity<ApiResponse<UnreadCountResponse>> getUnreadNotificationsCount() {
+        return ResponseEntity.ok(ApiResponse.ok(notificationService.getClientUnreadCount()));
+    }
+
+    @RequestMapping(value = "/notifications/{id}/read", method = {RequestMethod.PUT, RequestMethod.PATCH, RequestMethod.POST})
+    @Operation(summary = "Mijoz bildirishnomasini o'qilgan deb belgilash")
+    public ResponseEntity<ApiResponse<NotificationReadResponse>> markNotificationAsRead(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok("Bildirishnoma o'qildi deb belgilandi",
+                notificationService.markClientNotificationAsRead(id)));
+    }
+
+    @RequestMapping(value = "/notifications/read-all", method = {RequestMethod.PUT, RequestMethod.POST})
+    @Operation(summary = "Mijozning barcha bildirishnomalarini o'qilgan deb belgilash")
+    public ResponseEntity<ApiResponse<Boolean>> markAllNotificationsAsRead() {
+        notificationService.markAllClientNotificationsAsRead();
+        return ResponseEntity.ok(ApiResponse.ok("Barcha bildirishnomalar o'qildi deb belgilandi", true));
+    }
 }
+

@@ -60,8 +60,12 @@ public class RatingService {
             throw new BadRequestException("Ushbu buyurtma sizga tegishli emas");
         }
 
-        if (order.getStatus() != OrderStatus.COMPLETED) {
-            throw new BadRequestException("Faqat yakunlangan buyurtmalarni baholash mumkin");
+        if (order.getStatus() != OrderStatus.COMPLETED && order.getStatus() != OrderStatus.DELIVERED) {
+            throw new BadRequestException("Faqat yetkazilgan yoki yakunlangan buyurtmalarni baholash mumkin");
+        }
+
+        if (ratingRepository.existsByOrderId(order.getId())) {
+            throw new BadRequestException("Ushbu buyurtma allaqachon baholangan");
         }
 
         Rating rating = Rating.builder()

@@ -11,6 +11,10 @@ import java.util.List;
 public interface RatingRepository extends JpaRepository<Rating, Long> {
     List<Rating> findAllByTargetTypeAndTargetId(String targetType, Long targetId);
 
+    java.util.Optional<Rating> findFirstByOrderId(Long orderId);
+
+    boolean existsByOrderId(Long orderId);
+
     @Query("SELECT AVG(r.stars) FROM Rating r WHERE r.targetType = :targetType AND r.targetId = :targetId")
     Double getAverageStars(@Param("targetType") String targetType, @Param("targetId") Long targetId);
 }

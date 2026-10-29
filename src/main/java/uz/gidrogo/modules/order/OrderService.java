@@ -20,6 +20,8 @@ import uz.gidrogo.modules.farm.FarmStatus;
 import uz.gidrogo.modules.order.dto.OrderDtos.*;
 import uz.gidrogo.modules.product.Product;
 import uz.gidrogo.modules.product.ProductRepository;
+import uz.gidrogo.modules.rating.Rating;
+import uz.gidrogo.modules.rating.RatingRepository;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -45,6 +47,7 @@ public class OrderService {
     private final uz.gidrogo.websocket.WebSocketEventPublisher eventPublisher;
     private final uz.gidrogo.modules.bottle.ClientBottleBalanceRepository clientBottleBalanceRepository;
     private final uz.gidrogo.modules.farm.FarmDispatchSettingsRepository farmDispatchSettingsRepository;
+    private final RatingRepository ratingRepository;
 
     /**
      * 6.4: Ko'p-fermali savatni fermalar bo'yicha alohida buyurtmalarga ajratish va rasmiylashtirish
@@ -125,7 +128,7 @@ public class OrderService {
 
             for (CartItemDto ci : farmItems) {
                 Product p = productCache.get(ci.getProductId());
-                BigDecimal lineSum = p.getPrice().multiply(ci.getQuantity());
+                BigDecimal lineSum = p.getPrice().multiply(BigDecimal.valueOf(ci.getQuantity()));
                 productsSum = productsSum.add(lineSum);
 
                 if (p.isReturnable()) {
@@ -133,7 +136,7 @@ public class OrderService {
                             .findByClientIdAndFarmIdAndProductId(client.getId(), farmId, p.getId())
                             .map(uz.gidrogo.modules.bottle.ClientBottleBalance::getBalance)
                             .orElse(0);
-                    int orderedQty = ci.getQuantity().intValue();
+                    int orderedQty = ci.getQuantity();
                     int estTara = Math.max(0, orderedQty - clientBalance);
                     taraQtyEstimated += estTara;
                     BigDecimal unitTara = p.getTaraPrice() != null ? p.getTaraPrice() :
@@ -174,7 +177,7 @@ public class OrderService {
                 OrderItem orderItem = OrderItem.builder()
                         .orderId(order.getId())
                         .productId(p.getId())
-                        .quantity(ci.getQuantity())
+                        .quantity(BigDecimal.valueOf(ci.getQuantity()))
                         .unitPrice(p.getPrice())
                         .volumeLitersSnapshot(p.getVolumeLiters())
                         .taraPriceSnapshot(p.isReturnable() ? (p.getTaraPrice() != null ? p.getTaraPrice() : p.getDepositPrice()) : null)
@@ -665,6 +668,19 @@ public class OrderService {
                 ? null
                 : order.getTotalSum();
 
+        List<StatusHistoryItem> statusHistory = statusHistoryRepository.findAllByOrderIdOrderByChangedAtAsc(order.getId())
+                .stream()
+                .map(h -> StatusHistoryItem.builder()
+                        .fromStatus(h.getFromStatus() != null ? h.getFromStatus().name() : null)
+                        .status(h.getToStatus() != null ? h.getToStatus().name() : null)
+                        .at(h.getChangedAt())
+                        .build())
+                .toList();
+
+        Optional<Rating> ratingOpt = ratingRepository.findFirstByOrderId(order.getId());
+        Boolean reviewed = ratingOpt.isPresent();
+        Instant reviewedAt = ratingOpt.map(Rating::getCreatedAt).orElse(null);
+
         return OrderResponse.builder()
                 .id(order.getId())
                 .orderNumber(order.getOrderNumber())
@@ -705,6 +721,9 @@ public class OrderService {
                 .deliveredAt(order.getDeliveredAt())
                 .completedAt(order.getCompletedAt())
                 .createdAt(order.getCreatedAt())
+                .statusHistory(statusHistory)
+                .reviewed(reviewed)
+                .reviewedAt(reviewedAt)
                 .build();
     }
 }

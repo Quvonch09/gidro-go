@@ -54,7 +54,7 @@ public class BottleService {
             Product product = productRepository.findById(item.getProductId())
                     .orElseThrow(() -> new ResourceNotFoundException("Mahsulot topilmadi: " + item.getProductId()));
 
-            BigDecimal itemSum = product.getPrice().multiply(item.getQuantity());
+            BigDecimal itemSum = product.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
             productsSum = productsSum.add(itemSum);
 
             if (product.isReturnable()) {
@@ -66,7 +66,7 @@ public class BottleService {
                             .orElse(0);
                 }
 
-                int orderedQty = item.getQuantity().intValue();
+                int orderedQty = item.getQuantity();
                 int taraQty = Math.max(0, orderedQty - clientBalance);
                 BigDecimal unitTaraPrice = product.getTaraPrice() != null ? product.getTaraPrice() :
                         (product.getDepositPrice() != null ? product.getDepositPrice() : BigDecimal.ZERO);

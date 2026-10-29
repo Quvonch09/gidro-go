@@ -1,4 +1,5 @@
 server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
   port: 8080
   forward-headers-strategy: framework
   compression:
@@ -83,6 +84,8 @@ app:
     nearby-distance-meters: 500.0
   upload:
     dir: ${APP_UPLOAD_DIR:/opt/gidrogo/uploads}
+  firebase:
+    credentials-path: ${GOOGLE_APPLICATION_CREDENTIALS:/etc/gidrogo/firebase-sa.json}
   security:
     # true faqat Nginx (reverse proxy) ortida: X-Forwarded-For ishonchli bo'ladi (BE-20)
     trust-forwarded-headers: ${TRUST_FORWARDED_HEADERS:false}
@@ -92,7 +95,7 @@ app:
 
 springdoc:
   api-docs:
-    enabled: ${API_DOCS_ENABLED:true}
+    enabled: ${API_DOCS_ENABLED:false}
   swagger-ui:
-    enabled: ${SWAGGER_UI_ENABLED:true}
+    enabled: ${SWAGGER_UI_ENABLED:false}
     path: /swagger-ui.html

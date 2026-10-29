@@ -51,6 +51,7 @@ public class CourierDispatchService {
     private final WebSocketEventPublisher eventPublisher;
     private final StringRedisTemplate redisTemplate;
     private final NotificationService notificationService;
+    private final uz.gidrogo.modules.notification.FirebaseMessagingService firebaseMessagingService;
 
     // Platform constants
     private static final int OFFER_TTL_SEC = 30;
@@ -233,6 +234,9 @@ public class CourierDispatchService {
                         "timestamp", Instant.now().toString()
                 );
                 courierWebSocketHandler.sendToCourier(rival.getCourierId(), cancelEvent);
+                try {
+                    firebaseMessagingService.sendOfferCancelledPush(rival.getCourierId(), orderId, rival.getId());
+                } catch (Exception ignored) {}
                 try {
                     notificationService.createNotification(
                             rival.getCourierId(),
@@ -506,6 +510,17 @@ public class CourierDispatchService {
             courierWebSocketHandler.sendToCourier(bestCandidate.courier().getId(), newOfferEvent);
 
             try {
+                firebaseMessagingService.sendNewOfferPush(
+                        bestCandidate.courier().getId(),
+                        order.getId(),
+                        offer.getId(),
+                        expiresAt.toString(),
+                        ttl,
+                        bestCandidate.distanceMeters()
+                );
+            } catch (Exception ignored) {}
+
+            try {
                 notificationService.createNotification(
                         bestCandidate.courier().getId(),
                         "Yangi buyurtma taklifi",
@@ -591,6 +606,9 @@ public class CourierDispatchService {
                         "timestamp", now.toString()
                 );
                 courierWebSocketHandler.sendToCourier(offer.getCourierId(), cancelEvent);
+                try {
+                    firebaseMessagingService.sendOfferCancelledPush(offer.getCourierId(), offer.getOrderId(), offer.getId());
+                } catch (Exception ignored) {}
 
                 log.info("Taklif {} muddati tugadi (EXPIRED), buyurtma {} keyingi nomzodga o'tkazilmoqda",
                         offer.getId(), offer.getOrderId());
@@ -649,6 +667,10 @@ public class CourierDispatchService {
 
     public void onOrderCancelledOrReassigned(Order cancelledOrder) {
         if (cancelledOrder == null || cancelledOrder.getCourierId() == null) return;
+
+        try {
+            firebaseMessagingService.sendOrderCancelledPush(cancelledOrder.getCourierId(), cancelledOrder.getId());
+        } catch (Exception ignored) {}
 
         // Agar bu buyurtma 1-buyurtma (yakor) bo'lsa, 2-buyurtmani 1-o'ringa surish
         List<Order> secondOrders = orderRepository.findAllByCourierIdAndStatusIn(
