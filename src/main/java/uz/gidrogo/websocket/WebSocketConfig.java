@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
@@ -20,6 +21,7 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.web.socket.CloseStatus;
@@ -67,6 +69,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Value("${app.cors.allowed-origins:https://gidrogo-project.vercel.app,https://*.vercel.app,https://gidrogo-miniapp.pages.dev,https://*.gidrogo-miniapp.pages.dev,https://*.pages.dev,https://web.telegram.org,https://*.telegram.org,https://169.58.215.170,http://169.58.215.170,https://169.58.215.170:8080,http://169.58.215.170:8080,http://localhost:*,https://localhost:*,http://127.0.0.1:*}")
     private String allowedOrigins;
 
+    private static final long HEARTBEAT_MS = 10_000;
+
+    /** Ticket atomik o'qiladi va o'chiriladi; GETDEL'dan farqli Redis 6.2 dan eski versiyada ham ishlaydi */
+    private static final DefaultRedisScript<String> CONSUME_TICKET = new DefaultRedisScript<>(
+            "local v = redis.call('GET', KEYS[1]); if v then redis.call('DEL', KEYS[1]) end; return v", String.class);
+
     /** Band 19: 1 mijozga <= 3 parallel ulanish */
     private final Map<Long, List<WebSocketSession>> userSessions = new ConcurrentHashMap<>();
 
@@ -90,7 +98,16 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic", "/queue");
+        // Band 19: heart-beat 10000,10000 — nginx bo'sh ulanishni uzmasligi va uzilish tez aniqlanishi uchun
+        ThreadPoolTaskScheduler heartbeatScheduler = new ThreadPoolTaskScheduler();
+        heartbeatScheduler.setPoolSize(1);
+        heartbeatScheduler.setThreadNamePrefix("stomp-heartbeat-");
+        heartbeatScheduler.setDaemon(true);
+        heartbeatScheduler.initialize();
+
+        registry.enableSimpleBroker("/topic", "/queue")
+                .setHeartbeatValue(new long[]{HEARTBEAT_MS, HEARTBEAT_MS})
+                .setTaskScheduler(heartbeatScheduler);
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
     }
@@ -113,7 +130,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 }
 
                 if (ticket != null && !ticket.isBlank()) {
-                    String cachedUserId = redisTemplate.opsForValue().getAndDelete("ws:ticket:" + ticket.trim());
+                    String cachedUserId = redisTemplate.execute(CONSUME_TICKET, List.of("ws:ticket:" + ticket.trim()));
                     if (cachedUserId == null) {
                         log.warn("WS /ws/client handshake rad etildi: yaroqsiz yoki ishlatilgan ticket");
                         response.setStatusCode(HttpStatus.UNAUTHORIZED);
@@ -149,20 +166,21 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                     }
                     try {
                         Long userId = jwtTokenProvider.getUserIdFromToken(token);
-                        Role role = jwtTokenProvider.getRoleFromToken(token);
-                        Long farmId = jwtTokenProvider.getFarmIdFromToken(token);
-                        String identifier = jwtTokenProvider.getClaimsFromToken(token).get("identifier", String.class);
-
-                        UserPrincipal principal = UserPrincipal.builder()
-                                .id(userId)
-                                .farmId(farmId)
-                                .role(role)
-                                .identifier(identifier)
-                                .active(true)
-                                .build();
-                        attributes.put("principal", principal);
-                        attributes.put("userId", userId);
-                        log.info("WS /ws/client handshake muvaffaqiyatli (JWT): userId={}, role={}", userId, role);
+                        // Band 18: CLIENT faqat bir martalik ticket bilan ulanadi (POST /api/client/ws-ticket)
+                        if (jwtTokenProvider.getRoleFromToken(token) == Role.CLIENT) {
+                            log.warn("WS /ws/client handshake rad etildi: mijoz ticket'siz ulanmoqda userId={}", userId);
+                            response.setStatusCode(HttpStatus.UNAUTHORIZED);
+                            return false;
+                        }
+                        User user = userRepository.findById(userId).orElse(null);
+                        if (user == null || !"ACTIVE".equalsIgnoreCase(user.getStatus())) {
+                            log.warn("WS /ws/client handshake rad etildi: user topilmadi yoki bloklangan id={}", userId);
+                            response.setStatusCode(HttpStatus.UNAUTHORIZED);
+                            return false;
+                        }
+                        attributes.put("principal", UserPrincipal.create(user));
+                        attributes.put("userId", user.getId());
+                        log.info("WS /ws/client handshake muvaffaqiyatli (JWT): userId={}, role={}", user.getId(), user.getRole());
                         return true;
                     } catch (Exception e) {
                         log.warn("WS /ws/client JWT parsing xatolik: {}", e.getMessage());

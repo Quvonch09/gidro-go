@@ -340,10 +340,10 @@ public class CourierService {
                         .latitude(request.getLatitude())
                         .longitude(request.getLongitude())
                         .lastSeenAt(Instant.now())
-                        .vehicleModel(courier.getVehicleModel() != null ? courier.getVehicleModel() : "Chevrolet Damas")
-                        .vehiclePlateNumber(courier.getVehiclePlateNumber() != null ? courier.getVehiclePlateNumber() : "")
+                        .vehicleModel(courier.getVehicleModel())
+                        .vehiclePlateNumber(courier.getVehiclePlateNumber())
                         .vehicleStock(vehicleStockRepository.sumQuantityByCourierId(courierId))
-                        .rating(4.9)
+                        .rating(courierRating(courierId))
                         .activeOrderId(activeOrder != null ? activeOrder.getId() : null)
                         .activeOrderNumber(activeOrder != null ? activeOrder.getOrderNumber() : null)
                         .activeOrderAddress(activeOrder != null ? activeOrder.getDeliveryAddress() : null)
@@ -363,7 +363,7 @@ public class CourierService {
             List<Order> activeOrders = orderRepository.findAllByCourierIdAndStatusIn(
                     courierId, List.of(OrderStatus.ON_THE_WAY, OrderStatus.NEARBY));
             for (Order o : activeOrders) {
-                if (o.getLatitude() != null && o.getLongitude() != null) {
+                if (o.getLatitude() != null && o.getLongitude() != null && shouldSendClientTracking(o.getId())) {
                     double distMeters = GeoUtils.calculateDistanceMeters(
                             request.getLatitude(), request.getLongitude(),
                             o.getLatitude().doubleValue(), o.getLongitude().doubleValue()
@@ -667,15 +667,14 @@ public class CourierService {
         ParsedLocation loc = parseCourierLocation(courierId);
         Boolean isOnline = Boolean.TRUE.equals(redisTemplate.hasKey("courier:online:" + courierId));
 
-        Double avgRating = ratingRepository.getAverageStars("COURIER", courierId);
-        Double rating = avgRating != null ? Math.round(avgRating * 10.0) / 10.0 : 4.9;
+        String shiftType = courier.getShiftType() != null ? courier.getShiftType() : "DAY";
 
         VehicleInfoDto vehicle = VehicleInfoDto.builder()
-                .model(courier.getVehicleModel() != null ? courier.getVehicleModel() : "Chevrolet Damas")
-                .plateNumber(courier.getVehiclePlateNumber() != null ? courier.getVehiclePlateNumber() : "01 A 777 BA")
-                .maxCapacity(courier.getMaxCapacity() != null ? courier.getMaxCapacity() : 50)
-                .licenseNumber(courier.getDriverLicenseNumber() != null ? courier.getDriverLicenseNumber() : "")
-                .passportSerial(courier.getPassportSerial() != null ? courier.getPassportSerial() : "")
+                .model(blankToNull(courier.getVehicleModel()))
+                .plateNumber(blankToNull(courier.getVehiclePlateNumber()))
+                .maxCapacity(courier.getMaxCapacity())
+                .licenseNumber(blankToNull(courier.getDriverLicenseNumber()))
+                .passportSerial(blankToNull(courier.getPassportSerial()))
                 .build();
 
         return CourierProfileResponse.builder()
@@ -687,7 +686,10 @@ public class CourierService {
                 .isOnline(isOnline)
                 .farmId(courier.getFarmId())
                 .farmName(farm != null ? farm.getName() : null)
-                .rating(rating)
+                .rating(courierRating(courierId))
+                .ratingCount(ratingRepository.countByTargetTypeAndTargetId("COURIER", courierId))
+                .shiftType(shiftType)
+                .shiftTypeLabel(shiftTypeLabel(shiftType))
                 .latitude(loc != null ? loc.lat() : null)
                 .longitude(loc != null ? loc.lon() : null)
                 .lastSeenAt(loc != null ? loc.timestamp() : null)
@@ -742,8 +744,6 @@ public class CourierService {
 
         return CourierDashboardResponse.builder()
                 .date(today)
-                .targetOrdersCount(15)
-                .targetRevenue(BigDecimal.valueOf(1000000.0))
                 .assignedOrders(assigned)
                 .completedOrders(completed)
                 .problemOrders(problemCount)
@@ -765,13 +765,6 @@ public class CourierService {
         User courier = userRepository.findById(courierId)
                 .orElseThrow(() -> new ResourceNotFoundException("Kuryer topilmadi"));
 
-        if (request.getPhone() != null && !request.getPhone().isBlank() && !request.getPhone().equals(courier.getPhone())) {
-            if (userRepository.existsByPhone(request.getPhone().trim())) {
-                throw new BadRequestException("Bu telefon raqam allaqachon ro'yxatdan o'tgan");
-            }
-            courier.setPhone(request.getPhone().trim());
-        }
-
         if (request.getNewPassword() != null && !request.getNewPassword().isBlank()) {
             if (request.getCurrentPassword() == null || request.getCurrentPassword().isBlank()) {
                 throw new BadRequestException("Yangi parol o'rnatish uchun joriy parolni kiritish shart");
@@ -785,20 +778,21 @@ public class CourierService {
             courier.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         }
 
+        // Bo'sh satr maydonni tozalaydi, null esa o'zgartirmaydi
         if (request.getVehicleModel() != null) {
-            courier.setVehicleModel(request.getVehicleModel());
+            courier.setVehicleModel(blankToNull(request.getVehicleModel()));
         }
         if (request.getVehiclePlateNumber() != null) {
-            courier.setVehiclePlateNumber(request.getVehiclePlateNumber());
+            courier.setVehiclePlateNumber(blankToNull(request.getVehiclePlateNumber()));
         }
         if (request.getMaxCapacity() != null) {
             courier.setMaxCapacity(request.getMaxCapacity());
         }
         if (request.getDriverLicenseNumber() != null) {
-            courier.setDriverLicenseNumber(request.getDriverLicenseNumber());
+            courier.setDriverLicenseNumber(blankToNull(request.getDriverLicenseNumber()));
         }
         if (request.getPassportSerial() != null) {
-            courier.setPassportSerial(request.getPassportSerial());
+            courier.setPassportSerial(blankToNull(request.getPassportSerial()));
         }
         if (request.getAvatarUrl() != null) {
             courier.setAvatarUrl(request.getAvatarUrl());
@@ -953,8 +947,6 @@ public class CourierService {
             Order activeOrder = activeOrders.isEmpty() ? null : activeOrders.get(0);
             String status = determineCourierStatus(courier.getId(), loc);
             BigDecimal vehicleStock = vehicleStockRepository.sumQuantityByCourierId(courier.getId());
-            Double avgRating = ratingRepository.getAverageStars("COURIER", courier.getId());
-            Double rating = avgRating != null ? Math.round(avgRating * 10.0) / 10.0 : 4.9;
 
             String clientName = null;
             String clientPhone = null;
@@ -980,10 +972,10 @@ public class CourierService {
                     .latitude(loc != null ? loc.lat() : null)
                     .longitude(loc != null ? loc.lon() : null)
                     .lastSeenAt(loc != null ? loc.timestamp() : null)
-                    .vehicleModel(courier.getVehicleModel() != null ? courier.getVehicleModel() : "Chevrolet Damas")
-                    .vehiclePlateNumber(courier.getVehiclePlateNumber() != null ? courier.getVehiclePlateNumber() : "")
+                    .vehicleModel(courier.getVehicleModel())
+                    .vehiclePlateNumber(courier.getVehiclePlateNumber())
                     .vehicleStock(vehicleStock)
-                    .rating(rating)
+                    .rating(courierRating(courier.getId()))
                     .activeOrderId(activeOrder != null ? activeOrder.getId() : null)
                     .activeOrderNumber(activeOrder != null ? activeOrder.getOrderNumber() : null)
                     .activeOrderAddress(activeOrder != null ? activeOrder.getDeliveryAddress() : null)
@@ -1016,13 +1008,42 @@ public class CourierService {
                 String[] parts = val.split(",");
                 double lat = Double.parseDouble(parts[0]);
                 double lon = Double.parseDouble(parts[1]);
-                Instant time = parts.length > 2 ? Instant.ofEpochMilli(Long.parseLong(parts[2])) : Instant.now();
+                // Format: lat,lon,bearing,speedKmh,epochMillis
+                Instant time = parts.length > 4 ? Instant.ofEpochMilli(Long.parseLong(parts[4])) : Instant.now();
                 return new ParsedLocation(lat, lon, time);
             }
         } catch (Exception e) {
             log.debug("Lokatsiya o'qishda xatolik courier {}: {}", courierId, e.getMessage());
         }
         return null;
+    }
+
+    private Double courierRating(Long courierId) {
+        Double avgRating = ratingRepository.getAverageStars("COURIER", courierId);
+        return avgRating != null ? Math.round(avgRating * 10.0) / 10.0 : null;
+    }
+
+    private String shiftTypeLabel(String shiftType) {
+        return switch (shiftType.toUpperCase()) {
+            case "DAY" -> "Kunduzgi";
+            case "NIGHT" -> "Tungi";
+            case "FULL_TIME" -> "To'liq";
+            default -> shiftType;
+        };
+    }
+
+    private String blankToNull(String value) {
+        return value != null && !value.isBlank() ? value.trim() : null;
+    }
+
+    /** Band 19: mijozga kuryer koordinatasi har buyurtma uchun 10 soniyada ko'pi bilan bir marta yuboriladi */
+    private boolean shouldSendClientTracking(Long orderId) {
+        try {
+            return Boolean.TRUE.equals(redisTemplate.opsForValue()
+                    .setIfAbsent("courier:tracking-sent:" + orderId, "1", java.time.Duration.ofSeconds(10)));
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     private String determineCourierStatus(Long courierId, ParsedLocation loc) {
@@ -1119,7 +1140,7 @@ public class CourierService {
                     .phone(c.getPhone())
                     .vehicleModel(c.getVehicleModel())
                     .vehiclePlateNumber(c.getVehiclePlateNumber())
-                    .maxCapacity(c.getMaxCapacity() != null ? c.getMaxCapacity() : 40)
+                    .maxCapacity(c.getMaxCapacity())
                     .isOnline(isOnline)
                     .status(status)
                     .statusLabel(statusLabel)

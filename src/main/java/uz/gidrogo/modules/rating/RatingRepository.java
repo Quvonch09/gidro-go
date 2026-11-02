@@ -15,6 +15,8 @@ public interface RatingRepository extends JpaRepository<Rating, Long> {
 
     boolean existsByOrderId(Long orderId);
 
+    long countByTargetTypeAndTargetId(String targetType, Long targetId);
+
     @Query("SELECT AVG(r.stars) FROM Rating r WHERE r.targetType = :targetType AND r.targetId = :targetId")
     Double getAverageStars(@Param("targetType") String targetType, @Param("targetId") Long targetId);
 }

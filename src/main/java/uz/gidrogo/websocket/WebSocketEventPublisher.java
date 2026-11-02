@@ -149,6 +149,23 @@ public class WebSocketEventPublisher {
     }
 
     /**
+     * Dispatch holati (SEARCHING / PREPARING) o'zgarganda: panel va mijoz yangilanadi, bildirishnoma yozilmaydi
+     */
+    public void publishDispatchStatusChanged(Long farmId, Long clientId, OrderResponse order) {
+        if (order == null) return;
+        if (farmId != null) {
+            String farmTopic = "/topic/farm/" + farmId + "/orders";
+            send(farmTopic, WsEvent.<OrderResponse>builder()
+                    .eventType("ORDER_STATUS_CHANGED")
+                    .topic(farmTopic)
+                    .farmId(farmId)
+                    .data(order)
+                    .build());
+        }
+        sendClientStatusTrackingMessage(clientId, order);
+    }
+
+    /**
      * Kuryer GPS lokatsiyasi yangilanganda jonli xaritaga translyatsiya qilish
      */
     public void publishCourierLocation(Long farmId, Long courierId, CourierTrackingResponse tracking) {
@@ -176,12 +193,20 @@ public class WebSocketEventPublisher {
 
         // 3. Agar faol buyurtma bo'lsa, mijoz xaritada mashinaning harakatini ko'rib turadi
         if (tracking.getActiveOrderId() != null) {
+            // Band 19: mijoz kanaliga courierId, telefon va boshqa shaxsiy maydonlar chiqmaydi
+            CourierTrackingResponse clientView = CourierTrackingResponse.builder()
+                    .currentStatus(tracking.getCurrentStatus())
+                    .latitude(tracking.getLatitude())
+                    .longitude(tracking.getLongitude())
+                    .lastSeenAt(tracking.getLastSeenAt())
+                    .activeOrderId(tracking.getActiveOrderId())
+                    .build();
             String orderTopic = "/topic/order/" + tracking.getActiveOrderId() + "/courier-location";
             send(orderTopic, WsEvent.<CourierTrackingResponse>builder()
                     .eventType("COURIER_LOCATION")
                     .topic(orderTopic)
                     .farmId(farmId)
-                    .data(tracking)
+                    .data(clientView)
                     .build());
         }
     }

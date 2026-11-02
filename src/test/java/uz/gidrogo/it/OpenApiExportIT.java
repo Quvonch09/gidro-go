@@ -20,7 +20,8 @@ class OpenApiExportIT extends ItBase {
     @Test
     @DisplayName("docs/openapi.json yangilanadi")
     void exportOpenApi() throws Exception {
-        ResponseEntity<JsonNode> r = get("/v3/api-docs", null);
+        // X-Forwarded-For'siz: SecurityConfig hujjatlarni faqat to'g'ridan-to'g'ri localhost so'roviga beradi
+        ResponseEntity<JsonNode> r = rest.getForEntity("/v3/api-docs", JsonNode.class);
         assertThat(r.getStatusCode().value()).isEqualTo(200);
         JsonNode spec = r.getBody();
         // Tasodifiy test porti kontraktga kirmasin

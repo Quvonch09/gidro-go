@@ -76,6 +76,8 @@ public class CourierDtos {
         private Boolean online; // true = ONLINE, false = OFFLINE
         private String status;  // "ONLINE" yoki "OFFLINE"
 
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        @io.swagger.v3.oas.annotations.media.Schema(hidden = true)
         public Boolean isOnlineEffective() {
             if (online != null) return online;
             if (status != null) return "ONLINE".equalsIgnoreCase(status);
@@ -116,11 +118,14 @@ public class CourierDtos {
         private String fullName;
         private String phone;
         private String avatarUrl;
-        private String status;       // ACTIVE, BLOCKED
+        private String status;       // Akkaunt holati: ACTIVE, BLOCKED, DELETED (online emas)
         private Boolean isOnline;    // Redis'dan olinadi
         private Long farmId;
         private String farmName;
-        private Double rating;
+        private Double rating;       // Baho bo'lmasa null
+        private long ratingCount;
+        private String shiftType;    // Ish jadvali: DAY, NIGHT, FULL_TIME
+        private String shiftTypeLabel;
         private Double latitude;
         private Double longitude;
         private Instant lastSeenAt;
@@ -145,8 +150,8 @@ public class CourierDtos {
     @AllArgsConstructor
     public static class CourierDashboardResponse {
         private LocalDate date;
-        private int targetOrdersCount; // Kunlik maqsadli buyurtmalar soni
-        private BigDecimal targetRevenue; // Kunlik maqsadli daromad
+        private Integer targetOrdersCount; // Kunlik reja (hozircha belgilanmaydi: null)
+        private BigDecimal targetRevenue; // Kunlik reja (hozircha belgilanmaydi: null)
         private long assignedOrders;
         private long completedOrders;
         private long problemOrders;
@@ -163,7 +168,6 @@ public class CourierDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ProfileUpdateRequest {
-        private String phone;
         private String currentPassword;
         private String newPassword;
         private String vehicleModel;

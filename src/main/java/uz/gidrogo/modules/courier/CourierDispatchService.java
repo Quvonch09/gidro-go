@@ -153,7 +153,7 @@ public class CourierDispatchService {
                 .orElseThrow(() -> new ResourceNotFoundException("Buyurtma topilmadi"));
 
         // 403 Forbidden tekshiruvi: faqat shu kuryerga berilgan taklif qabul qilinishi mumkin
-        CourierOffer offer = courierOfferRepository.findByOrderIdAndCourierId(orderId, courierId)
+        CourierOffer offer = courierOfferRepository.findFirstByOrderIdAndCourierIdOrderByIdDesc(orderId, courierId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Ushbu buyurtma sizga taklif qilinmagan"));
 
         if (!"PENDING".equalsIgnoreCase(offer.getStatus())) {
@@ -224,19 +224,7 @@ public class CourierDispatchService {
                 rival.setStatus("CANCELLED");
                 courierOfferRepository.save(rival);
 
-                Map<String, Object> cancelEvent = Map.of(
-                        "type", "OFFER_CANCELLED",
-                        "data", Map.of(
-                                "offerId", rival.getId(),
-                                "orderId", orderId,
-                                "reason", "ACCEPTED_BY_OTHER"
-                        ),
-                        "timestamp", Instant.now().toString()
-                );
-                courierWebSocketHandler.sendToCourier(rival.getCourierId(), cancelEvent);
-                try {
-                    firebaseMessagingService.sendOfferCancelledPush(rival.getCourierId(), orderId, rival.getId());
-                } catch (Exception ignored) {}
+                notifyOfferCancelled(rival, "ACCEPTED_BY_OTHER");
                 try {
                     notificationService.createNotification(
                             rival.getCourierId(),
@@ -287,7 +275,7 @@ public class CourierDispatchService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Buyurtma topilmadi"));
 
-        courierOfferRepository.findByOrderIdAndCourierId(orderId, courierId).ifPresent(offer -> {
+        courierOfferRepository.findFirstByOrderIdAndCourierIdOrderByIdDesc(orderId, courierId).ifPresent(offer -> {
             offer.setStatus("REJECTED");
             offer.setRejectReason(reason);
             offer.setRespondedAt(Instant.now());
@@ -361,16 +349,30 @@ public class CourierDispatchService {
         List<CandidateEta> candidateList = new ArrayList<>();
 
         boolean anyOnline = false;
-        boolean anyHasStock = false;
+        boolean anyStockShort = false;
+        boolean anyCooldown = false;
 
         for (User courier : farmCouriers) {
-            if (!isCourierOnline(courier.getId())) continue;
+            // Band 21: har bir rad sababi logga yoziladi (orderId, courierId, failedCondition)
+            if (!"ACTIVE".equalsIgnoreCase(courier.getStatus())) {
+                logSkipped(order, courier, "ACCOUNT_NOT_ACTIVE");
+                continue;
+            }
+            if (!isCourierOnline(courier.getId())) {
+                logSkipped(order, courier, "OFFLINE");
+                continue;
+            }
             anyOnline = true;
 
-            if (cooldownCouriers.contains(courier.getId())) continue;
+            if (cooldownCouriers.contains(courier.getId())) {
+                anyCooldown = true;
+                logSkipped(order, courier, "REOFFER_COOLDOWN");
+                continue;
+            }
 
             // Bitta dastavkachiga bir vaqtda faqat bitta PENDING taklif
             if (!courierOfferRepository.findAllByCourierIdAndStatus(courier.getId(), "PENDING").isEmpty()) {
+                logSkipped(order, courier, "HAS_PENDING_OFFER");
                 continue;
             }
 
@@ -380,6 +382,7 @@ public class CourierDispatchService {
                     List.of(OrderStatus.ASSIGNED, OrderStatus.ON_THE_WAY, OrderStatus.NEARBY, OrderStatus.PROBLEM)
             );
             if (activeOrders.size() >= maxActiveOrders) {
+                logSkipped(order, courier, "AT_CAPACITY");
                 continue;
             }
 
@@ -392,9 +395,13 @@ public class CourierDispatchService {
                     break;
                 }
             }
-            if (!hasStock) continue;
-            anyHasStock = true;
+            if (!hasStock) {
+                anyStockShort = true;
+                logSkipped(order, courier, "INSUFFICIENT_STOCK");
+                continue;
+            }
 
+            // GPS yo'q bo'lsa kuryer chetlab o'tilmaydi: ETA ferma koordinatasidan hisoblanadi
             ParsedLocation loc = parseCourierLocation(courier.getId());
             double courierLat = loc != null ? loc.lat() : (farm.getLatitude() != null ? farm.getLatitude().doubleValue() : 39.774);
             double courierLon = loc != null ? loc.lon() : (farm.getLongitude() != null ? farm.getLongitude().doubleValue() : 64.428);
@@ -410,13 +417,17 @@ public class CourierDispatchService {
             } else {
                 // Band dastavkachi (activeOrders.size() == 1): yangi mijoz yakor manzilidan R ichida bo'lishi shart
                 Order anchor = activeOrders.get(0);
-                if (anchor.getLatitude() == null || anchor.getLongitude() == null) continue;
+                if (anchor.getLatitude() == null || anchor.getLongitude() == null) {
+                    logSkipped(order, courier, "ANCHOR_WITHOUT_LOCATION");
+                    continue;
+                }
 
                 double anchorLat = anchor.getLatitude().doubleValue();
                 double anchorLon = anchor.getLongitude().doubleValue();
 
                 double distAnchorToNew = GeoUtils.calculateDistanceMeters(anchorLat, anchorLon, targetLat, targetLon);
                 if (distAnchorToNew > secondOrderRadiusM) {
+                    logSkipped(order, courier, "OUTSIDE_SECOND_ORDER_RADIUS");
                     continue; // R radiusidan tashqarida!
                 }
 
@@ -468,6 +479,13 @@ public class CourierDispatchService {
             if (order.getStatus() == OrderStatus.PREPARING) {
                 order.setStatus(OrderStatus.SEARCHING);
                 orderRepository.save(order);
+
+                statusHistoryRepository.save(OrderStatusHistory.builder()
+                        .orderId(order.getId())
+                        .fromStatus(OrderStatus.PREPARING)
+                        .toStatus(OrderStatus.SEARCHING)
+                        .build());
+                publishDispatchStatus(order);
             }
 
             OrderBriefDto brief = OrderBriefDto.builder()
@@ -503,6 +521,8 @@ public class CourierDispatchService {
 
             Map<String, Object> newOfferEvent = Map.of(
                     "type", "NEW_OFFER",
+                    "offerId", offer.getId(),
+                    "status", offer.getStatus(),
                     "data", offerResp,
                     "timestamp", Instant.now().toString()
             );
@@ -535,9 +555,9 @@ public class CourierDispatchService {
             String reason;
             if (!anyOnline) {
                 reason = "NO_FREE_COURIER";
-            } else if (!anyHasStock) {
+            } else if (anyStockShort) {
                 reason = "NO_STOCK";
-            } else if (!cooldownCouriers.isEmpty()) {
+            } else if (anyCooldown) {
                 reason = "ALL_DECLINED";
             } else {
                 reason = "NO_FREE_COURIER";
@@ -552,11 +572,15 @@ public class CourierDispatchService {
             order.setDispatchAttempts(order.getDispatchAttempts() != null ? order.getDispatchAttempts() + 1 : 1);
             order = orderRepository.save(order);
 
-            statusHistoryRepository.save(OrderStatusHistory.builder()
-                    .orderId(order.getId())
-                    .fromStatus(prev)
-                    .toStatus(OrderStatus.PREPARING)
-                    .build());
+            // Har 60 soniyalik qayta urinish holatni o'zgartirmaydi: o'zgarmas tarixga yozilmaydi
+            if (prev != OrderStatus.PREPARING) {
+                statusHistoryRepository.save(OrderStatusHistory.builder()
+                        .orderId(order.getId())
+                        .fromStatus(prev)
+                        .toStatus(OrderStatus.PREPARING)
+                        .build());
+                publishDispatchStatus(order);
+            }
 
             log.info("Buyurtma {} PREPARING ga o'tdi, sabab: {}, urinishlar: {}", order.getId(), reason, order.getDispatchAttempts());
         }
@@ -596,19 +620,7 @@ public class CourierDispatchService {
                 offer.setStatus("EXPIRED");
                 courierOfferRepository.save(offer);
 
-                Map<String, Object> cancelEvent = Map.of(
-                        "type", "OFFER_CANCELLED",
-                        "data", Map.of(
-                                "offerId", offer.getId(),
-                                "orderId", offer.getOrderId(),
-                                "reason", "EXPIRED"
-                        ),
-                        "timestamp", now.toString()
-                );
-                courierWebSocketHandler.sendToCourier(offer.getCourierId(), cancelEvent);
-                try {
-                    firebaseMessagingService.sendOfferCancelledPush(offer.getCourierId(), offer.getOrderId(), offer.getId());
-                } catch (Exception ignored) {}
+                notifyOfferCancelled(offer, "EXPIRED");
 
                 log.info("Taklif {} muddati tugadi (EXPIRED), buyurtma {} keyingi nomzodga o'tkazilmoqda",
                         offer.getId(), offer.getOrderId());
@@ -666,7 +678,16 @@ public class CourierDispatchService {
     }
 
     public void onOrderCancelledOrReassigned(Order cancelledOrder) {
-        if (cancelledOrder == null || cancelledOrder.getCourierId() == null) return;
+        if (cancelledOrder == null) return;
+
+        // Kuryer hali biriktirilmagan bo'lsa ham ochiq taklif va uning ovozli bildirishnomasi yopiladi
+        for (CourierOffer offer : courierOfferRepository.findAllByOrderIdAndStatus(cancelledOrder.getId(), "PENDING")) {
+            offer.setStatus("CANCELLED");
+            courierOfferRepository.save(offer);
+            notifyOfferCancelled(offer, "ORDER_CANCELLED");
+        }
+
+        if (cancelledOrder.getCourierId() == null) return;
 
         try {
             firebaseMessagingService.sendOrderCancelledPush(cancelledOrder.getCourierId(), cancelledOrder.getId());
@@ -713,6 +734,37 @@ public class CourierDispatchService {
             }
         }
         return totalStock.subtract(reserved).max(BigDecimal.ZERO);
+    }
+
+    private void notifyOfferCancelled(CourierOffer offer, String reason) {
+        Map<String, Object> cancelEvent = Map.of(
+                "type", "OFFER_CANCELLED",
+                "offerId", offer.getId(),
+                "status", offer.getStatus(),
+                "data", Map.of(
+                        "offerId", offer.getId(),
+                        "orderId", offer.getOrderId(),
+                        "reason", reason
+                ),
+                "timestamp", Instant.now().toString()
+        );
+        courierWebSocketHandler.sendToCourier(offer.getCourierId(), cancelEvent);
+        try {
+            firebaseMessagingService.sendOfferCancelledPush(offer.getCourierId(), offer.getOrderId(), offer.getId());
+        } catch (Exception ignored) {}
+    }
+
+    private void publishDispatchStatus(Order order) {
+        try {
+            eventPublisher.publishDispatchStatusChanged(order.getFarmId(), order.getClientId(), getOrderService().mapToResponse(order, false));
+        } catch (Exception e) {
+            log.warn("Dispatch holati yuborilmadi: orderId={}, error={}", order.getId(), e.getMessage());
+        }
+    }
+
+    private void logSkipped(Order order, User courier, String failedCondition) {
+        log.debug("Dispatch nomzodi o'tkazib yuborildi: orderId={}, courierId={}, failedCondition={}",
+                order.getId(), courier.getId(), failedCondition);
     }
 
     private double travelTimeSec(double lat1, double lon1, double lat2, double lon2) {

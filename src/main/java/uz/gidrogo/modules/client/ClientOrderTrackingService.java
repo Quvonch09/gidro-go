@@ -319,15 +319,15 @@ public class ClientOrderTrackingService {
         try {
             avgRating = ratingRepository.getAverageStars("COURIER", courier.getId());
         } catch (Exception ignored) {}
-        Double rating = avgRating != null ? Math.round(avgRating * 10.0) / 10.0 : 4.9;
+        Double rating = avgRating != null ? Math.round(avgRating * 10.0) / 10.0 : null;
 
         return CourierLiveDto.builder()
                 .id(courier.getId())
                 .fullName(courier.getFullName())
                 .phone(courier.getPhone())
                 .avatarUrl(courier.getAvatarUrl())
-                .vehicleModel(courier.getVehicleModel() != null ? courier.getVehicleModel() : "Chevrolet Damas")
-                .vehiclePlateNumber(courier.getVehiclePlateNumber() != null ? courier.getVehiclePlateNumber() : "")
+                .vehicleModel(courier.getVehicleModel())
+                .vehiclePlateNumber(courier.getVehiclePlateNumber())
                 .rating(rating)
                 .currentLatitude(currentLat)
                 .currentLongitude(currentLon)
