@@ -1,7 +1,7 @@
 # 18–22-bandlar bo'yicha javob
 
-**Holat:** tuzatishlar kodda tayyor va lokal testlardan o'tgan, lekin **hali prodga chiqmagan**.
-Deploydan keyin server (dev yoki prod) alohida yoziladi. Yangi spec: `docs/openapi.json`.
+**Holat:** tuzatishlar **prodga chiqdi** (`https://169.58.215.170`, commit `e22c65c`, 2026-11-02). Yangi spec: `docs/openapi.json`.
+FCM prodda ishga tushdi (`Firebase initialized`), lekin haqiqiy push yetib borishi hali sinovdan o'tmagan.
 
 | Band | Holat |
 |---|---|

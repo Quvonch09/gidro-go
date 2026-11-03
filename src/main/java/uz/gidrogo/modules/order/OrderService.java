@@ -48,6 +48,7 @@ public class OrderService {
     private final uz.gidrogo.modules.bottle.ClientBottleBalanceRepository clientBottleBalanceRepository;
     private final uz.gidrogo.modules.farm.FarmDispatchSettingsRepository farmDispatchSettingsRepository;
     private final RatingRepository ratingRepository;
+    private final uz.gidrogo.modules.farm.FarmServiceArea farmServiceArea;
 
     /**
      * 6.4: Ko'p-fermali savatni fermalar bo'yicha alohida buyurtmalarga ajratish va rasmiylashtirish
@@ -121,6 +122,8 @@ public class OrderService {
                 throw uz.gidrogo.common.ApiException.conflict("FARM_INACTIVE",
                         "Kechirasiz, " + farm.getName() + " vaqtincha ishlamayapti");
             }
+            // Band 23: ferma yetkazib berish manziliga xizmat qilishi shart
+            farmServiceArea.requireServes(farm, address.getLatitude(), address.getLongitude());
 
             BigDecimal productsSum = BigDecimal.ZERO;
             BigDecimal taraSum = BigDecimal.ZERO;

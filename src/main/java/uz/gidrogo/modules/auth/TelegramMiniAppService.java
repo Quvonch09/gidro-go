@@ -47,6 +47,7 @@ public class TelegramMiniAppService {
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenService refreshTokenService;
     private final StringRedisTemplate redisTemplate;
+    private final uz.gidrogo.modules.farm.FarmServiceArea farmServiceArea;
     private final ObjectMapper objectMapper;
 
     @Value("${telegram.bot.token:}")
@@ -366,6 +367,11 @@ public class TelegramMiniAppService {
             throw ApiException.conflict("FARM_NOT_ACTIVE", "Tanlangan ferma vaqtincha yangi mijozlarni qabul qilmaydi");
         }
 
+        // Band 23: tanlangan ferma mijoz manziliga xizmat qilishi shart (himoya serverda)
+        farmServiceArea.requireServes(farm,
+                request.getLatitude() != null ? BigDecimal.valueOf(request.getLatitude()) : null,
+                request.getLongitude() != null ? BigDecimal.valueOf(request.getLongitude()) : null);
+
         // Foydalanuvchi yaratish (passwordHash = null!)
         String fullName = request.getFullName();
         if (fullName == null || fullName.isBlank()) {
@@ -492,6 +498,12 @@ public class TelegramMiniAppService {
         if (newFarm.getId().equals(client.getFarmId())) {
             return; // O'zgarmagan
         }
+
+        // Band 23: yangi ferma mijozning asosiy manziliga xizmat qilishi shart
+        clientAddressRepository.findAllByClientId(client.getId()).stream()
+                .filter(ClientAddress::isDefault)
+                .findFirst()
+                .ifPresent(a -> farmServiceArea.requireServes(newFarm, a.getLatitude(), a.getLongitude()));
 
         // 2. Faol buyurtmalar tekshiruvi (ASSIGNED, ON_THE_WAY, NEARBY, PENDING, DELIVERED)
         boolean hasActiveOrders = orderRepository.findAllByClientIdOrderByCreatedAtDesc(client.getId()).stream()

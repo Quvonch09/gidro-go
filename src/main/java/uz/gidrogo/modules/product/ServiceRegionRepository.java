@@ -8,4 +8,6 @@ import java.util.List;
 @Repository
 public interface ServiceRegionRepository extends JpaRepository<ServiceRegion, Long> {
     List<ServiceRegion> findAllByFarmId(Long farmId);
+
+    List<ServiceRegion> findAllByFarmIdAndActiveTrue(Long farmId);
 }

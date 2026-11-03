@@ -75,6 +75,9 @@ telegram:
     webhook:
       enabled: ${TELEGRAM_WEBHOOK_ENABLED:true}
       url: ${TELEGRAM_WEBHOOK_URL:https://169.58.215.170/api/telegram/webhook}
+  # Band 23: "GidroGo" menyu tugmasi va inline tugma ochadigan Mini App manzili
+  miniapp:
+    url: ${MINIAPP_URL:https://gidrogo-miniapp.pages.dev}
 
 app:
   cors:
@@ -84,6 +87,9 @@ app:
     nearby-distance-meters: 500.0
   upload:
     dir: ${APP_UPLOAD_DIR:/opt/gidrogo/uploads}
+  farm:
+    # Band 23: faol poligoni yo'q ferma uchun zaxira xizmat radiusi
+    service-radius-km: ${FARM_SERVICE_RADIUS_KM:30}
   firebase:
     credentials-path: ${GOOGLE_APPLICATION_CREDENTIALS:/etc/gidrogo/firebase-sa.json}
   security:

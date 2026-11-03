@@ -36,19 +36,22 @@ public class ClientService {
     private final RatingService ratingService;
     private final uz.gidrogo.modules.bottle.ClientBottleBalanceRepository bottleBalanceRepository;
     private final uz.gidrogo.modules.auth.RefreshTokenService refreshTokenService;
+    private final uz.gidrogo.modules.farm.FarmServiceArea farmServiceArea;
 
     public List<NearbyFarmResponse> getNearbyFarms(double clientLat, double clientLon) {
         List<Farm> activeFarms = farmRepository.findAllByStatus(FarmStatus.ACTIVE);
         List<NearbyFarmResponse> nearbyList = new ArrayList<>();
 
         for (Farm farm : activeFarms) {
-            double distance = 0.0;
-            if (farm.getLatitude() != null && farm.getLongitude() != null) {
-                distance = GeoUtils.calculateDistanceMeters(
-                        clientLat, clientLon,
-                        farm.getLatitude().doubleValue(), farm.getLongitude().doubleValue()
-                );
+            // Band 23: faqat nuqtaga xizmat qiladigan va koordinatasi bor fermalar (soxta 0 m masofa yo'q)
+            if (farm.getLatitude() == null || farm.getLongitude() == null
+                    || !farmServiceArea.serves(farm, clientLat, clientLon)) {
+                continue;
             }
+            double distance = GeoUtils.calculateDistanceMeters(
+                    clientLat, clientLon,
+                    farm.getLatitude().doubleValue(), farm.getLongitude().doubleValue()
+            );
 
             User boss = farm.getBossUserId() != null ? userRepository.findById(farm.getBossUserId()).orElse(null) : null;
             FarmResponse farmResp = FarmResponse.builder()
@@ -56,6 +59,8 @@ public class ClientService {
                     .name(farm.getName())
                     .phone(farm.getPhone())
                     .address(farm.getAddress())
+                    .city(farm.getCity())
+                    .district(farm.getDistrict())
                     .latitude(farm.getLatitude())
                     .longitude(farm.getLongitude())
                     .logoUrl(farm.getLogoUrl())
@@ -91,6 +96,8 @@ public class ClientService {
                 addressRepository.save(a);
             });
         }
+
+        requireClientFarmServes(client, BigDecimal.valueOf(request.getLatitude()), BigDecimal.valueOf(request.getLongitude()));
 
         ClientAddress address = ClientAddress.builder()
                 .clientId(client.getId())
@@ -129,7 +136,14 @@ public class ClientService {
         List<Farm> farms = farmRepository.findAllByStatus(FarmStatus.ACTIVE);
         List<AvailableFarmResponse> list = new ArrayList<>();
 
+        boolean byPoint = lat != null && lon != null;
+
         for (Farm farm : farms) {
+            // Band 23: nuqta berilganda faqat unga xizmat qiladigan fermalar (poligon, bo'lmasa radius)
+            if (byPoint && !farmServiceArea.serves(farm, lat, lon)) {
+                continue;
+            }
+
             String fullFarmText = (farm.getName() != null ? farm.getName() : "") + " "
                     + (farm.getAddress() != null ? farm.getAddress() : "") + " "
                     + (farm.getCity() != null ? farm.getCity() : "") + " "
@@ -153,12 +167,10 @@ public class ClientService {
             Double distanceKm = null;
             Integer deliveryTimeMinutes = 25;
 
-            if (lat != null && lon != null && farm.getLatitude() != null && farm.getLongitude() != null) {
-                double distanceMeters = GeoUtils.calculateDistanceMeters(
-                        lat, lon,
-                        farm.getLatitude().doubleValue(), farm.getLongitude().doubleValue()
-                );
-                distanceKm = Math.round((distanceMeters / 1000.0) * 10.0) / 10.0;
+            if (byPoint) {
+                distanceKm = farmServiceArea.distanceKm(farm, lat, lon);
+            }
+            if (distanceKm != null) {
                 deliveryTimeMinutes = (int) Math.min(90, Math.max(25, 20 + Math.round(distanceKm * 3.5)));
             }
 
@@ -213,6 +225,13 @@ public class ClientService {
         }
 
         return list;
+    }
+
+    /** Band 23: mijozning fermasi bu manzilga xizmat qilmasa 409 FARM_NOT_SERVING_ADDRESS */
+    private void requireClientFarmServes(Client client, BigDecimal lat, BigDecimal lon) {
+        if (client.getFarmId() == null) return;
+        farmRepository.findById(client.getFarmId())
+                .ifPresent(farm -> farmServiceArea.requireServes(farm, lat, lon));
     }
 
     private String inferCityFromAddress(String text) {
@@ -485,6 +504,12 @@ public class ClientService {
                     addressRepository.save(a);
                 }
             });
+        }
+
+        if (request.getLatitude() != null || request.getLongitude() != null) {
+            requireClientFarmServes(client,
+                    request.getLatitude() != null ? BigDecimal.valueOf(request.getLatitude()) : address.getLatitude(),
+                    request.getLongitude() != null ? BigDecimal.valueOf(request.getLongitude()) : address.getLongitude());
         }
 
         address.setAddress(request.getAddress().trim());

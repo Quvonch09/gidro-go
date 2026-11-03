@@ -2817,8 +2817,8 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "enum" : [ "DAY", "WEEK", "MONTH" ],
-            "default" : "MONTH"
+            "default" : "MONTH",
+            "enum" : [ "DAY", "WEEK", "MONTH" ]
           }
         } ],
         "responses" : {
@@ -3088,8 +3088,8 @@
           "required" : false,
           "schema" : {
             "type" : "string",
-            "enum" : [ "DAY", "WEEK", "MONTH" ],
-            "default" : "DAY"
+            "default" : "DAY",
+            "enum" : [ "DAY", "WEEK", "MONTH" ]
           }
         } ],
         "responses" : {

@@ -20,6 +20,7 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final ServiceRegionRepository serviceRegionRepository;
+    private final @org.springframework.context.annotation.Lazy uz.gidrogo.modules.farm.FarmServiceArea farmServiceArea;
 
     @Transactional
     public ProductResponse createProduct(ProductCreateRequest request) {
@@ -107,6 +108,8 @@ public class ProductService {
         if (currentUser == null || currentUser.getRole() != Role.MANAGER) {
             throw new AccessDeniedException("Xizmat hududlarini belgilash faqat Manager vakolatida");
         }
+
+        farmServiceArea.validatePolygonJson(request.getPolygonJson());
 
         ServiceRegion region = ServiceRegion.builder()
                 .farmId(currentUser.getFarmId())
