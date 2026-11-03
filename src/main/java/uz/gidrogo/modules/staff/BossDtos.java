@@ -197,6 +197,7 @@ public class BossDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class EnhancedStaffItemResponse {
+        private Integer maxCapacity; // Yuk sig'imi (faqat dastavkachi)
         private Long id;
         private Long farmId;
         private String fullName;

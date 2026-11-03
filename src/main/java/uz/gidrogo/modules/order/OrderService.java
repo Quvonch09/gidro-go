@@ -250,11 +250,27 @@ public class OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Buyurtma topilmadi"));
 
+        // Manager faqat o'z fermasining buyurtmasini biriktiradi
+        Long currentFarmId = SecurityUtils.getCurrentFarmId();
+        if (currentFarmId != null && !currentFarmId.equals(order.getFarmId())) {
+            throw uz.gidrogo.common.ApiException.notFound("ORDER_NOT_FOUND", "Buyurtma topilmadi");
+        }
+
         User courier = userRepository.findById(newCourierId)
                 .orElseThrow(() -> new ResourceNotFoundException("Dastavkachi topilmadi"));
 
-        if (!order.getFarmId().equals(courier.getFarmId())) {
+        if (courier.getRole() != uz.gidrogo.modules.auth.Role.COURIER || !order.getFarmId().equals(courier.getFarmId())) {
             throw new BadRequestException("Dastavkachi ushbu fermaga tegishli emas");
+        }
+        if (!"ACTIVE".equalsIgnoreCase(courier.getStatus())) {
+            throw uz.gidrogo.common.ApiException.conflict("COURIER_NOT_ACTIVE", "Dastavkachi akkaunti faol emas");
+        }
+        if (!ASSIGNABLE_STATUSES.contains(order.getStatus())) {
+            throw uz.gidrogo.common.ApiException.conflict("ORDER_NOT_ASSIGNABLE",
+                    "Buyurtma " + order.getStatus() + " holatida, unga dastavkachi biriktirib bo'lmaydi");
+        }
+        if (newCourierId.equals(order.getCourierId())) {
+            throw uz.gidrogo.common.ApiException.conflict("ALREADY_ASSIGNED", "Buyurtma allaqachon shu dastavkachiga biriktirilgan");
         }
 
         // 2-talab: N va erkin zaxira qat'iy tekshiriladi: buzilsa 409
@@ -300,12 +316,10 @@ public class OrderService {
         Long oldCourierId = order.getCourierId();
         OrderStatus prev = order.getStatus();
 
-        // Agar eski kuryerda bu buyurtma yakor bo'lsa, uning 2-buyurtmasini 1-o'ringa surish
-        if (oldCourierId != null) {
-            try {
-                courierDispatchService.onOrderCancelledOrReassigned(order);
-            } catch (Exception ignored) {}
-        }
+        // Ochiq takliflar yopiladi; eski kuryerda bu buyurtma yakor bo'lsa, uning 2-buyurtmasi 1-o'ringa suriladi
+        try {
+            courierDispatchService.onOrderCancelledOrReassigned(order);
+        } catch (Exception ignored) {}
 
         order.setCourierId(newCourierId);
         order.setStatus(OrderStatus.ASSIGNED);
@@ -334,9 +348,17 @@ public class OrderService {
         try {
             eventPublisher.publishOrderAssigned(order.getFarmId(), newCourierId, response);
         } catch (Exception ignored) {}
+        // Kuryer ilovasi /ws/courier va FCM'ni tinglaydi: unga to'g'ridan-to'g'ri xabar
+        try {
+            courierDispatchService.notifyManualAssignment(order);
+        } catch (Exception ignored) {}
 
         return response;
     }
+
+    private static final java.util.Set<OrderStatus> ASSIGNABLE_STATUSES = java.util.EnumSet.of(
+            OrderStatus.NEW, OrderStatus.CONFIRMED, OrderStatus.SEARCHING, OrderStatus.PREPARING,
+            OrderStatus.ASSIGNED, OrderStatus.PROBLEM);
 
     public List<OrderResponse> getClientOrders() {
         Long userId = SecurityUtils.getCurrentUserId();

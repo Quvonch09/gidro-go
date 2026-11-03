@@ -34,6 +34,7 @@ public class CashService {
     private final CashHandoverRepository handoverRepository;
     private final UserRepository userRepository;
     private final CourierWebSocketHandler courierWebSocketHandler;
+    private final uz.gidrogo.websocket.WebSocketEventPublisher eventPublisher;
 
     @Transactional
     public void recordCashCollected(Order order, Long courierId) {
@@ -130,28 +131,18 @@ public class CashService {
         handover = handoverRepository.save(handover);
 
         User courier = userRepository.findById(courierId).orElse(null);
+        CashHandoverResponse response = mapToResponse(handover, courier != null ? courier.getFullName() : null, null);
 
-        // WS xabari menejerlarga
-        Map<String, Object> event = Map.of(
-                "type", "CASH_HANDOVER_REQUESTED",
-                "data", Map.of(
-                        "handoverId", handover.getId(),
-                        "courierId", courierId,
-                        "courierName", courier != null ? courier.getFullName() : "",
-                        "declaredAmount", handover.getDeclaredAmount(),
-                        "createdAt", handover.getCreatedAt().toString()
-                )
-        );
-        // Farm managerlariga xabar yuborish
+        // So'rov ferma rahbari (Boss) va menejerlar paneliga boradi: /topic/farm/{farmId}/cash
+        eventPublisher.publishFarmEvent(farmId, "cash", "CASH_HANDOVER_REQUESTED", response);
         log.info("Kassa topshirish so'rovi yaratildi: id={}, courierId={}", handover.getId(), courierId);
 
-        return mapToResponse(handover, courier != null ? courier.getFullName() : null, null);
+        return response;
     }
 
     @Transactional
     public CashHandoverResponse confirmHandover(Long managerId, Long farmId, Long handoverId, ManagerHandoverConfirmRequest request) {
-        CashHandover handover = handoverRepository.findById(handoverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Topshirish so'rovi topilmadi"));
+        CashHandover handover = findInFarm(handoverId, farmId);
 
         if (!"PENDING".equalsIgnoreCase(handover.getStatus())) {
             throw new BadRequestException("Topshirish so'rovi faol emas: " + handover.getStatus());
@@ -203,13 +194,14 @@ public class CashService {
         );
         courierWebSocketHandler.sendToCourier(handover.getCourierId(), wsEvent);
 
-        return mapToResponse(handover, courier != null ? courier.getFullName() : null, manager != null ? manager.getFullName() : null);
+        CashHandoverResponse response = mapToResponse(handover, courier != null ? courier.getFullName() : null, manager != null ? manager.getFullName() : null);
+        eventPublisher.publishFarmEvent(handover.getFarmId(), "cash", "CASH_HANDOVER_CONFIRMED", response);
+        return response;
     }
 
     @Transactional
     public CashHandoverResponse rejectHandover(Long managerId, Long farmId, Long handoverId, ManagerHandoverRejectRequest request) {
-        CashHandover handover = handoverRepository.findById(handoverId)
-                .orElseThrow(() -> new ResourceNotFoundException("Topshirish so'rovi topilmadi"));
+        CashHandover handover = findInFarm(handoverId, farmId);
 
         if (!"PENDING".equalsIgnoreCase(handover.getStatus())) {
             throw new BadRequestException("Topshirish so'rovi faol emas: " + handover.getStatus());
@@ -240,11 +232,23 @@ public class CashService {
         );
         courierWebSocketHandler.sendToCourier(handover.getCourierId(), wsEvent);
 
-        return mapToResponse(handover, courier != null ? courier.getFullName() : null, manager != null ? manager.getFullName() : null);
+        CashHandoverResponse response = mapToResponse(handover, courier != null ? courier.getFullName() : null, manager != null ? manager.getFullName() : null);
+        eventPublisher.publishFarmEvent(handover.getFarmId(), "cash", "CASH_HANDOVER_REJECTED", response);
+        return response;
+    }
+
+    /** Boshqa fermaning so'rovi tasdiqlanmasin: ferma mos kelmasa 404 */
+    private CashHandover findInFarm(Long handoverId, Long farmId) {
+        return handoverRepository.findById(handoverId)
+                .filter(h -> farmId != null && farmId.equals(h.getFarmId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Topshirish so'rovi topilmadi"));
     }
 
     @Transactional
     public CashHandoverResponse managerDirectHandover(Long managerId, Long farmId, Long courierId, ManagerDirectHandoverRequest request) {
+        userRepository.findById(courierId)
+                .filter(u -> u.getRole() == Role.COURIER && farmId != null && farmId.equals(u.getFarmId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Dastavkachi topilmadi"));
         BigDecimal balance = calculateCourierBalance(courierId);
         if (request.getAmount().compareTo(balance) > 0) {
             throw new BadRequestException("Kassa balansidan (" + balance + " so'm) ortiq summa kiritib bo'lmaydi");
@@ -375,7 +379,14 @@ public class CashService {
             }
         }
 
+        List<CashHandover> pending = handoverRepository.findAllByFarmIdAndStatusOrderByCreatedAtDesc(farmId, "PENDING");
+        BigDecimal pendingAmount = pending.stream()
+                .map(CashHandover::getDeclaredAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
         return BossCashSummaryResponse.builder()
+                .pendingHandoversCount(pending.size())
+                .pendingHandoversAmount(pendingAmount)
                 .totalCollected(collected)
                 .totalHandedOver(handedOver)
                 .remainingWithCouriers(remaining)
@@ -384,7 +395,10 @@ public class CashService {
     }
 
     private CashHandoverResponse mapToResponse(CashHandover h, String courierName, String managerName) {
+        String resolvedByRole = h.getManagerId() == null ? null
+                : userRepository.findById(h.getManagerId()).map(u -> u.getRole().name()).orElse(null);
         return CashHandoverResponse.builder()
+                .resolvedByRole(resolvedByRole)
                 .id(h.getId())
                 .courierId(h.getCourierId())
                 .courierName(courierName)

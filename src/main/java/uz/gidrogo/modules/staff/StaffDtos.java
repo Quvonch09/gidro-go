@@ -33,6 +33,35 @@ public class StaffDtos {
         private StaffRole role;
 
         private String shiftType; // DAY, NIGHT, FULL_TIME
+
+        // Faqat COURIER uchun: transport ma'lumotlari (mashina raqami majburiy)
+        @io.swagger.v3.oas.annotations.media.Schema(description = "Transport (mashina rusumi), faqat COURIER", example = "Damas")
+        @jakarta.validation.constraints.Size(max = 100, message = "Transport nomi ko'pi bilan 100 ta belgi")
+        private String vehicleModel;
+
+        @io.swagger.v3.oas.annotations.media.Schema(description = "Mashina raqami, COURIER uchun majburiy", example = "01 A 123 BC")
+        @jakarta.validation.constraints.Size(max = 50, message = "Mashina raqami ko'pi bilan 50 ta belgi")
+        private String vehiclePlateNumber;
+
+        @io.swagger.v3.oas.annotations.media.Schema(description = "Yuk sig'imi (nechta idish sig'adi), faqat COURIER", example = "40")
+        @jakarta.validation.constraints.Min(value = 1, message = "Yuk sig'imi kamida 1 bo'lishi kerak")
+        @jakarta.validation.constraints.Max(value = 10000, message = "Yuk sig'imi 10000 dan oshmasligi kerak")
+        private Integer maxCapacity;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StaffVehicleUpdateRequest {
+        @jakarta.validation.constraints.Size(max = 100, message = "Transport nomi ko'pi bilan 100 ta belgi")
+        private String vehicleModel;
+
+        @jakarta.validation.constraints.Size(max = 50, message = "Mashina raqami ko'pi bilan 50 ta belgi")
+        private String vehiclePlateNumber;
+
+        @jakarta.validation.constraints.Min(value = 1, message = "Yuk sig'imi kamida 1 bo'lishi kerak")
+        @jakarta.validation.constraints.Max(value = 10000, message = "Yuk sig'imi 10000 dan oshmasligi kerak")
+        private Integer maxCapacity;
     }
 
     @Data
@@ -55,6 +84,9 @@ public class StaffDtos {
         private Role role;
         private String status;
         private String shiftType;
+        private String vehicleModel;
+        private String vehiclePlateNumber;
+        private Integer maxCapacity;
         private Instant createdAt;
     }
 }

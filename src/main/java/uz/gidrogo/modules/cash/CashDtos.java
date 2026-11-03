@@ -114,8 +114,9 @@ public class CashDtos {
         private BigDecimal confirmedAmount;
         private String status;
         private String initiatedBy;
-        private Long managerId;
+        private Long managerId;      // Tasdiqlagan/rad etgan foydalanuvchi (Manager yoki Boss)
         private String managerName;
+        private String resolvedByRole; // MANAGER yoki BOSS
         private String note;
         private String rejectReason;
         private Instant createdAt;
@@ -127,6 +128,8 @@ public class CashDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class BossCashSummaryResponse {
+        private int pendingHandoversCount;       // Tasdiqlanishi kutilayotgan so'rovlar
+        private BigDecimal pendingHandoversAmount;
         private BigDecimal totalCollected;
         private BigDecimal totalHandedOver;
         private BigDecimal remainingWithCouriers;

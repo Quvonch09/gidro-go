@@ -394,6 +394,7 @@ public class BossService {
                     .todayDeliveredBottles(deliveredToday != null ? deliveredToday : BigDecimal.ZERO)
                     .vehicleModel(u.getVehicleModel())
                     .vehiclePlateNumber(u.getVehiclePlateNumber())
+                    .maxCapacity(u.getMaxCapacity())
                     .shiftType(u.getShiftType() != null ? u.getShiftType() : "DAY")
                     .avatarUrl(u.getAvatarUrl() != null && !u.getAvatarUrl().isBlank() ? u.getAvatarUrl() :
                             "https://ui-avatars.com/api/?name=" + (u.getFullName() != null ? u.getFullName().replace(" ", "+") : "User") + "&background=0D8ABC&color=fff&rounded=true")
@@ -440,6 +441,7 @@ public class BossService {
                 .todayDeliveredBottles(deliveredToday != null ? deliveredToday : BigDecimal.ZERO)
                 .vehicleModel(u.getVehicleModel())
                 .vehiclePlateNumber(u.getVehiclePlateNumber())
+                .maxCapacity(u.getMaxCapacity())
                 .shiftType(u.getShiftType() != null ? u.getShiftType() : "DAY")
                 .avatarUrl(u.getAvatarUrl() != null && !u.getAvatarUrl().isBlank() ? u.getAvatarUrl() :
                         "https://ui-avatars.com/api/?name=" + (u.getFullName() != null ? u.getFullName().replace(" ", "+") : "User") + "&background=0D8ABC&color=fff&rounded=true")

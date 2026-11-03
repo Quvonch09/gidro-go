@@ -40,6 +40,11 @@ public class StaffService {
         }
 
         Role actualRole = Role.valueOf(request.getRole().name());
+        boolean courier = actualRole == Role.COURIER;
+        if (courier && blankToNull(request.getVehiclePlateNumber()) == null) {
+            throw uz.gidrogo.common.ApiException.unprocessable("VEHICLE_PLATE_REQUIRED", "vehiclePlateNumber",
+                    "Dastavkachi uchun mashina raqami kiritilishi shart");
+        }
 
         User staff = User.builder()
                 .farmId(farmId)
@@ -48,6 +53,9 @@ public class StaffService {
                 .phone(phone)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .shiftType(request.getShiftType() != null && !request.getShiftType().isBlank() ? request.getShiftType().trim() : "DAY")
+                .vehicleModel(courier ? blankToNull(request.getVehicleModel()) : null)
+                .vehiclePlateNumber(courier ? normalizePlate(request.getVehiclePlateNumber()) : null)
+                .maxCapacity(courier ? request.getMaxCapacity() : null)
                 .status("ACTIVE")
                 .build();
 
@@ -113,6 +121,33 @@ public class StaffService {
         userRepository.delete(staff);
     }
 
+    /** Boss kuryerning transport ma'lumotini tahrirlaydi. Bo'sh satr maydonni tozalaydi, null o'zgartirmaydi. */
+    @Transactional
+    public StaffResponse updateCourierVehicle(Long staffId, StaffVehicleUpdateRequest request) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        User staff = userRepository.findById(staffId)
+                .filter(u -> farmId != null && farmId.equals(u.getFarmId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Xodim topilmadi"));
+        if (staff.getRole() != Role.COURIER) {
+            throw uz.gidrogo.common.ApiException.unprocessable("NOT_A_COURIER", "id",
+                    "Transport ma'lumoti faqat dastavkachi uchun kiritiladi");
+        }
+        if (request.getVehicleModel() != null) staff.setVehicleModel(blankToNull(request.getVehicleModel()));
+        if (request.getVehiclePlateNumber() != null) staff.setVehiclePlateNumber(normalizePlate(request.getVehiclePlateNumber()));
+        if (request.getMaxCapacity() != null) staff.setMaxCapacity(request.getMaxCapacity());
+        return mapToResponse(userRepository.save(staff));
+    }
+
+    private String blankToNull(String value) {
+        return value != null && !value.isBlank() ? value.trim() : null;
+    }
+
+    /** "01 a 123 bc" → "01 A 123 BC" (ortiqcha bo'shliqlar olib tashlanadi) */
+    private String normalizePlate(String plate) {
+        String v = blankToNull(plate);
+        return v == null ? null : v.replaceAll("\\s+", " ").toUpperCase();
+    }
+
     private StaffResponse mapToResponse(User user) {
         return StaffResponse.builder()
                 .id(user.getId())
@@ -122,6 +157,9 @@ public class StaffService {
                 .role(user.getRole())
                 .status(user.getStatus())
                 .shiftType(user.getShiftType())
+                .vehicleModel(user.getVehicleModel())
+                .vehiclePlateNumber(user.getVehiclePlateNumber())
+                .maxCapacity(user.getMaxCapacity())
                 .createdAt(user.getCreatedAt())
                 .build();
     }

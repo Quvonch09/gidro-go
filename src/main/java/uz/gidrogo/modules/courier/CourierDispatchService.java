@@ -736,6 +736,31 @@ public class CourierDispatchService {
         return totalStock.subtract(reserved).max(BigDecimal.ZERO);
     }
 
+    /** Manager qo'lda biriktirganda kuryerga /ws/courier, FCM va bildirishnoma */
+    public void notifyManualAssignment(Order order) {
+        Long courierId = order.getCourierId();
+        if (courierId == null) return;
+        courierWebSocketHandler.sendToCourier(courierId, Map.of(
+                "type", "ORDER_ASSIGNED",
+                "orderId", order.getId(),
+                "data", Map.of(
+                        "orderId", order.getId(),
+                        "orderNumber", order.getOrderNumber() != null ? order.getOrderNumber() : "",
+                        "deliverySequence", order.getDeliverySequence() != null ? order.getDeliverySequence() : 1,
+                        "assignedBy", "MANAGER"
+                ),
+                "timestamp", Instant.now().toString()
+        ));
+        try {
+            firebaseMessagingService.sendCourierDataPush(courierId, "ORDER_ASSIGNED",
+                    Map.of("orderId", String.valueOf(order.getId())), "order_" + order.getId());
+        } catch (Exception ignored) {}
+        try {
+            notificationService.createNotification(courierId, "Yangi buyurtma biriktirildi",
+                    "Menejer sizga buyurtma #" + order.getOrderNumber() + " ni biriktirdi", "ORDER_ASSIGNED", order.getId());
+        } catch (Exception ignored) {}
+    }
+
     private void notifyOfferCancelled(CourierOffer offer, String reason) {
         Map<String, Object> cancelEvent = Map.of(
                 "type", "OFFER_CANCELLED",

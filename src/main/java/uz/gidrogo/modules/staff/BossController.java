@@ -162,6 +162,14 @@ public class BossController {
         return ResponseEntity.ok(ApiResponse.ok(bossService.getStaffSummary(farmId, period, role)));
     }
 
+    @PutMapping("/staff/{id}/vehicle")
+    @Operation(summary = "Dastavkachining transporti, mashina raqami va yuk sig'imini tahrirlash")
+    public ResponseEntity<ApiResponse<StaffResponse>> updateCourierVehicle(
+            @PathVariable Long id,
+            @Valid @RequestBody StaffVehicleUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Transport ma'lumotlari yangilandi", staffService.updateCourierVehicle(id, request)));
+    }
+
     @PatchMapping("/staff/{id}/status")
     @Operation(summary = "Xodim holatini faol/bloklangan qilish")
     public ResponseEntity<ApiResponse<StaffResponse>> updateStaffStatus(

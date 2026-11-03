@@ -149,6 +149,20 @@ public class WebSocketEventPublisher {
     }
 
     /**
+     * Ferma paneli (Manager va Boss) uchun umumiy hodisa: /topic/farm/{farmId}/{channel}
+     */
+    public void publishFarmEvent(Long farmId, String channel, String eventType, Object data) {
+        if (farmId == null) return;
+        String topic = "/topic/farm/" + farmId + "/" + channel;
+        send(topic, WsEvent.builder()
+                .eventType(eventType)
+                .topic(topic)
+                .farmId(farmId)
+                .data(data)
+                .build());
+    }
+
+    /**
      * Dispatch holati (SEARCHING / PREPARING) o'zgarganda: panel va mijoz yangilanadi, bildirishnoma yozilmaydi
      */
     public void publishDispatchStatusChanged(Long farmId, Long clientId, OrderResponse order) {

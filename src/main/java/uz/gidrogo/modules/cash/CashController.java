@@ -17,7 +17,7 @@ import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
-@Tag(name = "Cash & Handover API", description = "Dastavkachi kassa balansi va menejerga topshirish oqimi")
+@Tag(name = "Cash & Handover API", description = "Dastavkachi kassa balansi; topshirish so'rovi Boss'ga boradi, Boss yoki Manager tasdiqlaydi")
 public class CashController {
 
     private final CashService cashService;
@@ -91,6 +91,38 @@ public class CashController {
     }
 
     // ── Boss Endpoints ───────────────────────────────────────────────────────
+
+    @GetMapping("/api/boss/cash/handovers")
+    @Operation(summary = "Boss: kuryerlarning kassa topshirish so'rovlari (status=PENDING — tasdiq kutayotganlar)")
+    public ResponseEntity<ApiResponse<List<CashHandoverResponse>>> getBossHandovers(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long courierId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok(cashService.getFarmHandovers(farmId, status, courierId, date, startDate, endDate)));
+    }
+
+    @PostMapping("/api/boss/cash/handovers/{id}/confirm")
+    @Operation(summary = "Boss: kuryer topshirgan naqd pulni qabul qilish")
+    public ResponseEntity<ApiResponse<CashHandoverResponse>> bossConfirmHandover(
+            @PathVariable Long id,
+            @Valid @RequestBody ManagerHandoverConfirmRequest request) {
+        Long bossId = SecurityUtils.getCurrentUserId();
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok("Kassa qabul qilindi", cashService.confirmHandover(bossId, farmId, id, request)));
+    }
+
+    @PostMapping("/api/boss/cash/handovers/{id}/reject")
+    @Operation(summary = "Boss: kassa topshirish so'rovini rad etish")
+    public ResponseEntity<ApiResponse<CashHandoverResponse>> bossRejectHandover(
+            @PathVariable Long id,
+            @Valid @RequestBody ManagerHandoverRejectRequest request) {
+        Long bossId = SecurityUtils.getCurrentUserId();
+        Long farmId = SecurityUtils.getCurrentFarmId();
+        return ResponseEntity.ok(ApiResponse.ok("So'rov rad etildi", cashService.rejectHandover(bossId, farmId, id, request)));
+    }
 
     @GetMapping("/api/boss/cash/summary")
     @Operation(summary = "Boss uchun kassa tushumi, topshirilgan va dastavkachilarda qolgan summa hisoboti")

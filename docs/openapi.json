@@ -13,9 +13,6 @@
     "bearerAuth" : [ ]
   } ],
   "tags" : [ {
-    "name" : "Cash & Handover API",
-    "description" : "Dastavkachi kassa balansi va menejerga topshirish oqimi"
-  }, {
     "name" : "Boss API",
     "description" : "Ferma Boss boshqaruv paneli uchun API lar"
   }, {
@@ -49,8 +46,14 @@
     "name" : "SuperAdmin CRM",
     "description" : "SuperAdmin: mijozlar va buyurtmalar"
   }, {
+    "name" : "Cash & Handover API",
+    "description" : "Dastavkachi kassa balansi; topshirish so'rovi Boss'ga boradi, Boss yoki Manager tasdiqlaydi"
+  }, {
     "name" : "File Upload",
     "description" : "Fayl yuklash API (rasm, hujjat)"
+  }, {
+    "name" : "Feedback API",
+    "description" : "Mijoz va kuryer fikr-mulohazalari; Manager/Boss ko'radi va holatini belgilaydi"
   } ],
   "paths" : {
     "/api/client/notifications/read-all" : {
@@ -642,6 +645,44 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseString"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/boss/staff/{id}/vehicle" : {
+      "put" : {
+        "tags" : [ "Boss API" ],
+        "summary" : "Dastavkachining transporti, mashina raqami va yuk sig'imini tahrirlash",
+        "operationId" : "updateCourierVehicle",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/StaffVehicleUpdateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseStaffResponse"
                 }
               }
             }
@@ -1780,6 +1821,71 @@
         }
       }
     },
+    "/api/courier/feedback" : {
+      "get" : {
+        "tags" : [ "Feedback API" ],
+        "summary" : "Kuryerning o'z feedback'lari va manager javobi",
+        "operationId" : "getCourierFeedback",
+        "parameters" : [ {
+          "name" : "page",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 0
+          }
+        }, {
+          "name" : "size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 20
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePageResponseFeedbackResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "Feedback API" ],
+        "summary" : "Kuryer feedback yuboradi (ixtiyoriy orderId bilan)",
+        "operationId" : "createCourierFeedback",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/FeedbackCreateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseFeedbackResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/courier/device-token" : {
       "post" : {
         "tags" : [ "Courier API" ],
@@ -2010,6 +2116,71 @@
         }
       }
     },
+    "/api/client/feedback" : {
+      "get" : {
+        "tags" : [ "Feedback API" ],
+        "summary" : "Mijozning o'z feedback'lari va manager javobi",
+        "operationId" : "getClientFeedback",
+        "parameters" : [ {
+          "name" : "page",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 0
+          }
+        }, {
+          "name" : "size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 20
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePageResponseFeedbackResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "tags" : [ "Feedback API" ],
+        "summary" : "Mijoz feedback yuboradi (ixtiyoriy orderId bilan)",
+        "operationId" : "createClientFeedback",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/FeedbackCreateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseFeedbackResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/client/cart/quote" : {
       "post" : {
         "tags" : [ "Bottle & Tara API" ],
@@ -2168,6 +2339,82 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseStaffResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/boss/cash/handovers/{id}/reject" : {
+      "post" : {
+        "tags" : [ "Cash & Handover API" ],
+        "summary" : "Boss: kassa topshirish so'rovini rad etish",
+        "operationId" : "bossRejectHandover",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ManagerHandoverRejectRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseCashHandoverResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/boss/cash/handovers/{id}/confirm" : {
+      "post" : {
+        "tags" : [ "Cash & Handover API" ],
+        "summary" : "Boss: kuryer topshirgan naqd pulni qabul qilish",
+        "operationId" : "bossConfirmHandover",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ManagerHandoverConfirmRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseCashHandoverResponse"
                 }
               }
             }
@@ -2597,6 +2844,70 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseOrderResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/manager/feedback/{id}" : {
+      "get" : {
+        "tags" : [ "Feedback API" ],
+        "summary" : "Bitta feedback tafsiloti",
+        "operationId" : "getFeedback",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseFeedbackResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch" : {
+        "tags" : [ "Feedback API" ],
+        "summary" : "Feedback holatini o'zgartirish (SEEN/RESOLVED) va izoh qoldirish",
+        "operationId" : "updateFeedback",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/FeedbackUpdateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseFeedbackResponse"
                 }
               }
             }
@@ -4576,6 +4887,84 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseFinanceSummaryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/manager/feedback" : {
+      "get" : {
+        "tags" : [ "Feedback API" ],
+        "summary" : "Fermaga kelgan feedback'lar (status: NEW/SEEN/RESOLVED, source: CLIENT/COURIER, category)",
+        "operationId" : "getFarmFeedback",
+        "parameters" : [ {
+          "name" : "status",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "source",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "category",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "page",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 0
+          }
+        }, {
+          "name" : "size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 20
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePageResponseFeedbackResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/manager/feedback/summary" : {
+      "get" : {
+        "tags" : [ "Feedback API" ],
+        "summary" : "Feedback'lar soni holat bo'yicha (yangi/ko'rilgan/hal qilingan)",
+        "operationId" : "getFeedbackSummary",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseFeedbackSummaryResponse"
                 }
               }
             }
@@ -6715,6 +7104,65 @@
         }
       }
     },
+    "/api/boss/cash/handovers" : {
+      "get" : {
+        "tags" : [ "Cash & Handover API" ],
+        "summary" : "Boss: kuryerlarning kassa topshirish so'rovlari (status=PENDING — tasdiq kutayotganlar)",
+        "operationId" : "getBossHandovers",
+        "parameters" : [ {
+          "name" : "status",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "courierId",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "name" : "date",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date"
+          }
+        }, {
+          "name" : "startDate",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date"
+          }
+        }, {
+          "name" : "endDate",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "date"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseListCashHandoverResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/boss/analytics/growth" : {
       "get" : {
         "tags" : [ "Boss API" ],
@@ -7447,6 +7895,97 @@
             }
           },
           "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "StaffVehicleUpdateRequest" : {
+        "type" : "object",
+        "properties" : {
+          "vehicleModel" : {
+            "maxLength" : 100,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "vehiclePlateNumber" : {
+            "maxLength" : 50,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "maxCapacity" : {
+            "maximum" : 10000,
+            "minimum" : 1,
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ApiResponseStaffResponse" : {
+        "type" : "object",
+        "properties" : {
+          "success" : {
+            "type" : "boolean"
+          },
+          "code" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/StaffResponse"
+          },
+          "fieldErrors" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FieldErrorItem"
+            }
+          },
+          "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "StaffResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "farmId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "fullName" : {
+            "type" : "string"
+          },
+          "phone" : {
+            "type" : "string"
+          },
+          "role" : {
+            "type" : "string",
+            "enum" : [ "SUPER_ADMIN", "BOSS", "MANAGER", "COURIER", "CLIENT" ]
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "shiftType" : {
+            "type" : "string"
+          },
+          "vehicleModel" : {
+            "type" : "string"
+          },
+          "vehiclePlateNumber" : {
+            "type" : "string"
+          },
+          "maxCapacity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "createdAt" : {
             "type" : "string",
             "format" : "date-time"
           }
@@ -8302,6 +8841,9 @@
           "managerName" : {
             "type" : "string"
           },
+          "resolvedByRole" : {
+            "type" : "string"
+          },
           "note" : {
             "type" : "string"
           },
@@ -8594,6 +9136,114 @@
           "distanceMeters" : {
             "type" : "number",
             "format" : "double"
+          }
+        }
+      },
+      "FeedbackCreateRequest" : {
+        "required" : [ "message" ],
+        "type" : "object",
+        "properties" : {
+          "category" : {
+            "type" : "string",
+            "description" : "SERVICE, DELIVERY, PRODUCT, COURIER, APP, PAYMENT, OTHER (standart OTHER)",
+            "example" : "DELIVERY"
+          },
+          "message" : {
+            "maxLength" : 1000,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "orderId" : {
+            "type" : "integer",
+            "description" : "Ixtiyoriy: qaysi buyurtma haqida (o'zingizning buyurtmangiz bo'lishi shart)",
+            "format" : "int64"
+          }
+        }
+      },
+      "ApiResponseFeedbackResponse" : {
+        "type" : "object",
+        "properties" : {
+          "success" : {
+            "type" : "boolean"
+          },
+          "code" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/FeedbackResponse"
+          },
+          "fieldErrors" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FieldErrorItem"
+            }
+          },
+          "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "FeedbackResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "farmId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "source" : {
+            "type" : "string"
+          },
+          "authorUserId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "authorName" : {
+            "type" : "string"
+          },
+          "authorPhone" : {
+            "type" : "string"
+          },
+          "orderId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "orderNumber" : {
+            "type" : "string"
+          },
+          "category" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "managerNote" : {
+            "type" : "string"
+          },
+          "handledBy" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "handledByName" : {
+            "type" : "string"
+          },
+          "handledAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
           }
         }
       },
@@ -9068,66 +9718,28 @@
           },
           "shiftType" : {
             "type" : "string"
-          }
-        }
-      },
-      "ApiResponseStaffResponse" : {
-        "type" : "object",
-        "properties" : {
-          "success" : {
-            "type" : "boolean"
           },
-          "code" : {
-            "type" : "string"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "data" : {
-            "$ref" : "#/components/schemas/StaffResponse"
-          },
-          "fieldErrors" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/FieldErrorItem"
-            }
-          },
-          "timestamp" : {
+          "vehicleModel" : {
+            "maxLength" : 100,
+            "minLength" : 0,
             "type" : "string",
-            "format" : "date-time"
-          }
-        }
-      },
-      "StaffResponse" : {
-        "type" : "object",
-        "properties" : {
-          "id" : {
+            "description" : "Transport (mashina rusumi), faqat COURIER",
+            "example" : "Damas"
+          },
+          "vehiclePlateNumber" : {
+            "maxLength" : 50,
+            "minLength" : 0,
+            "type" : "string",
+            "description" : "Mashina raqami, COURIER uchun majburiy",
+            "example" : "01 A 123 BC"
+          },
+          "maxCapacity" : {
+            "maximum" : 10000,
+            "minimum" : 1,
             "type" : "integer",
-            "format" : "int64"
-          },
-          "farmId" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "fullName" : {
-            "type" : "string"
-          },
-          "phone" : {
-            "type" : "string"
-          },
-          "role" : {
-            "type" : "string",
-            "enum" : [ "SUPER_ADMIN", "BOSS", "MANAGER", "COURIER", "CLIENT" ]
-          },
-          "status" : {
-            "type" : "string"
-          },
-          "shiftType" : {
-            "type" : "string"
-          },
-          "createdAt" : {
-            "type" : "string",
-            "format" : "date-time"
+            "description" : "Yuk sig'imi (nechta idish sig'adi), faqat COURIER",
+            "format" : "int32",
+            "example" : 40
           }
         }
       },
@@ -9518,6 +10130,23 @@
         "properties" : {
           "status" : {
             "type" : "string"
+          }
+        }
+      },
+      "FeedbackUpdateRequest" : {
+        "required" : [ "status" ],
+        "type" : "object",
+        "properties" : {
+          "status" : {
+            "type" : "string",
+            "description" : "NEW, SEEN yoki RESOLVED",
+            "example" : "RESOLVED"
+          },
+          "managerNote" : {
+            "maxLength" : 1000,
+            "minLength" : 0,
+            "type" : "string",
+            "description" : "Manager izohi (muallifga ham ko'rinadi)"
           }
         }
       },
@@ -11435,6 +12064,104 @@
           },
           "period" : {
             "type" : "string"
+          }
+        }
+      },
+      "ApiResponsePageResponseFeedbackResponse" : {
+        "type" : "object",
+        "properties" : {
+          "success" : {
+            "type" : "boolean"
+          },
+          "code" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageResponseFeedbackResponse"
+          },
+          "fieldErrors" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FieldErrorItem"
+            }
+          },
+          "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "PageResponseFeedbackResponse" : {
+        "type" : "object",
+        "properties" : {
+          "content" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FeedbackResponse"
+            }
+          },
+          "page" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalElements" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "totalPages" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ApiResponseFeedbackSummaryResponse" : {
+        "type" : "object",
+        "properties" : {
+          "success" : {
+            "type" : "boolean"
+          },
+          "code" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/FeedbackSummaryResponse"
+          },
+          "fieldErrors" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FieldErrorItem"
+            }
+          },
+          "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "FeedbackSummaryResponse" : {
+        "type" : "object",
+        "properties" : {
+          "newCount" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "seenCount" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "resolvedCount" : {
+            "type" : "integer",
+            "format" : "int64"
           }
         }
       },
@@ -13427,6 +14154,10 @@
       "EnhancedStaffItemResponse" : {
         "type" : "object",
         "properties" : {
+          "maxCapacity" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
           "id" : {
             "type" : "integer",
             "format" : "int64"
@@ -13930,6 +14661,13 @@
       "BossCashSummaryResponse" : {
         "type" : "object",
         "properties" : {
+          "pendingHandoversCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "pendingHandoversAmount" : {
+            "type" : "number"
+          },
           "totalCollected" : {
             "type" : "number"
           },
