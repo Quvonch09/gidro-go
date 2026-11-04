@@ -70,6 +70,7 @@ public class FinanceDtos {
     @AllArgsConstructor
     public static class DashboardResponse {
         private Long farmId;
+        private long pendingHandoversCount; // Band 24: tasdiq kutayotgan kassa topshirish so'rovlari
         private BigDecimal todayIncome;
         private BigDecimal monthIncome;
         private BigDecimal todayExpense;

@@ -71,6 +71,7 @@ public class CashDtos {
     @AllArgsConstructor
     public static class PendingHandoverDto {
         private Long id;
+        private String status; // har doim PENDING
         private BigDecimal declaredAmount;
         private Instant createdAt;
     }
@@ -112,6 +113,7 @@ public class CashDtos {
         private Long farmId;
         private BigDecimal declaredAmount;
         private BigDecimal confirmedAmount;
+        @io.swagger.v3.oas.annotations.media.Schema(allowableValues = {"PENDING", "CONFIRMED", "REJECTED", "CANCELLED_BY_COURIER"})
         private String status;
         private String initiatedBy;
         private Long managerId;      // Tasdiqlagan/rad etgan foydalanuvchi (Manager yoki Boss)

@@ -38,6 +38,7 @@ public class FeedbackService {
     private final ClientRepository clientRepository;
     private final OrderRepository orderRepository;
     private final WebSocketEventPublisher eventPublisher;
+    private final uz.gidrogo.modules.notification.StaffNotificationService staffNotificationService;
 
     /** Mijoz feedback'i: mijoz biriktirilgan fermaga boradi */
     @Transactional
@@ -146,6 +147,10 @@ public class FeedbackService {
         FeedbackResponse response = toResponse(feedback);
         // Manager va Boss paneli: /topic/farm/{farmId}/feedback
         eventPublisher.publishFarmEvent(farmId, "feedback", "FEEDBACK_CREATED", response);
+        staffNotificationService.notifyFarmStaff(farmId, "Yangi feedback",
+                ("CLIENT".equals(source) ? "Mijoz" : "Kuryer") + " (" + (response.getAuthorName() != null ? response.getAuthorName() : "—") + "): "
+                        + (feedback.getMessage().length() > 120 ? feedback.getMessage().substring(0, 120) + "…" : feedback.getMessage()),
+                "FEEDBACK_CREATED", feedback.getId());
         return response;
     }
 

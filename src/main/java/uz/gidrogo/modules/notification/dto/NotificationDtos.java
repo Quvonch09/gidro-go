@@ -18,7 +18,13 @@ public class NotificationDtos {
         private Long id;
         private String title;
         private String message;
-        private String type; // ORDER_ASSIGNED, STOCK_RESTOCKED, BROADCAST, SYSTEM
+        @io.swagger.v3.oas.annotations.media.Schema(description = "Kuryer: NEW_OFFER, OFFER_CANCELLED, ORDER_ASSIGNED, "
+                + "CASH_HANDOVER_CONFIRMED, CASH_HANDOVER_REJECTED, SYSTEM. Manager/Boss: CASH_HANDOVER_REQUESTED, "
+                + "CASH_HANDOVER_CANCELLED, CASH_HANDOVER_SHORTAGE (faqat Boss), FEEDBACK_CREATED, SYSTEM",
+                allowableValues = {"NEW_OFFER", "OFFER_CANCELLED", "ORDER_ASSIGNED", "CASH_HANDOVER_CONFIRMED",
+                        "CASH_HANDOVER_REJECTED", "CASH_HANDOVER_REQUESTED", "CASH_HANDOVER_CANCELLED",
+                        "CASH_HANDOVER_SHORTAGE", "FEEDBACK_CREATED", "SYSTEM"})
+        private String type;
         private Long referenceId;
         private Boolean isRead;
         private Instant createdAt;

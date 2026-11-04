@@ -149,6 +149,22 @@ public class WebSocketEventPublisher {
     }
 
     /**
+     * Manager/Boss shaxsiy bildirishnomasi: /user/queue/notifications
+     */
+    public void publishUserNotification(Long userId, NotificationItemResponse notification) {
+        if (userId == null || notification == null) return;
+        try {
+            messagingTemplate.convertAndSendToUser(String.valueOf(userId), "/queue/notifications", WsEvent.<NotificationItemResponse>builder()
+                    .eventType("NOTIFICATION")
+                    .topic("/user/queue/notifications")
+                    .data(notification)
+                    .build());
+        } catch (Exception e) {
+            log.warn("User bildirishnomasi WS xatolik: userId={}, error={}", userId, e.getMessage());
+        }
+    }
+
+    /**
      * Ferma paneli (Manager va Boss) uchun umumiy hodisa: /topic/farm/{farmId}/{channel}
      */
     public void publishFarmEvent(Long farmId, String channel, String eventType, Object data) {

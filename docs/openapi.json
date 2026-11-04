@@ -22,6 +22,9 @@
     "name" : "Bottle & Tara API",
     "description" : "Qaytariladigan idish balansi va tara hisob-kitobi"
   }, {
+    "name" : "Staff Notifications API",
+    "description" : "Manager va Boss bildirishnomalari (kuryer bildirishnomalari bilan bir xil sxema)"
+  }, {
     "name" : "Telegram Bot API",
     "description" : "Telegram bot webhook va integratsiya"
   }, {
@@ -1210,6 +1213,44 @@
         }
       }
     },
+    "/api/manager/notifications/read-all" : {
+      "post" : {
+        "tags" : [ "Staff Notifications API" ],
+        "summary" : "Barcha bildirishnomalarni o'qilgan deb belgilash",
+        "operationId" : "markAllAsRead",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseBoolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/boss/notifications/read-all" : {
+      "post" : {
+        "tags" : [ "Staff Notifications API" ],
+        "summary" : "Barcha bildirishnomalarni o'qilgan deb belgilash",
+        "operationId" : "markAllAsRead_1",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseBoolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/manager/finance/expenses" : {
       "get" : {
         "tags" : [ "Manager API" ],
@@ -1916,6 +1957,49 @@
       }
     },
     "/api/courier/cash/handovers" : {
+      "get" : {
+        "tags" : [ "Cash & Handover API" ],
+        "summary" : "Kuryerning kassa topshirishlar tarixi (status: PENDING, CONFIRMED, REJECTED, CANCELLED_BY_COURIER)",
+        "operationId" : "getCourierHandovers",
+        "parameters" : [ {
+          "name" : "status",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "page",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 0
+          }
+        }, {
+          "name" : "size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 20
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePageResponseCashHandoverResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "post" : {
         "tags" : [ "Cash & Handover API" ],
         "summary" : "Kuryer tomonidan kassani topshirish so'rovini yuborish",
@@ -2844,6 +2928,62 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseOrderResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/manager/notifications/{id}/read" : {
+      "patch" : {
+        "tags" : [ "Staff Notifications API" ],
+        "summary" : "Bildirishnomani o'qilgan deb belgilash",
+        "operationId" : "markAsRead",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseNotificationReadResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/boss/notifications/{id}/read" : {
+      "patch" : {
+        "tags" : [ "Staff Notifications API" ],
+        "summary" : "Bildirishnomani o'qilgan deb belgilash",
+        "operationId" : "markAsRead_1",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseNotificationReadResponse"
                 }
               }
             }
@@ -4798,6 +4938,136 @@
         }
       }
     },
+    "/api/manager/notifications/unread-count" : {
+      "get" : {
+        "tags" : [ "Staff Notifications API" ],
+        "summary" : "O'qilmagan bildirishnomalar soni",
+        "operationId" : "getUnreadCount",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseUnreadCountResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/boss/notifications/unread-count" : {
+      "get" : {
+        "tags" : [ "Staff Notifications API" ],
+        "summary" : "O'qilmagan bildirishnomalar soni",
+        "operationId" : "getUnreadCount_1",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseUnreadCountResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/boss/notifications" : {
+      "get" : {
+        "tags" : [ "Staff Notifications API" ],
+        "summary" : "Bildirishnomalar (sahifalangan, unreadOnly filtri)",
+        "operationId" : "getNotifications",
+        "parameters" : [ {
+          "name" : "page",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 0
+          }
+        }, {
+          "name" : "size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 20
+          }
+        }, {
+          "name" : "unreadOnly",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseNotificationPageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/manager/notifications" : {
+      "get" : {
+        "tags" : [ "Staff Notifications API" ],
+        "summary" : "Bildirishnomalar (sahifalangan, unreadOnly filtri)",
+        "operationId" : "getNotifications_1",
+        "parameters" : [ {
+          "name" : "page",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 0
+          }
+        }, {
+          "name" : "size",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 20
+          }
+        }, {
+          "name" : "unreadOnly",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseNotificationPageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/manager/finance/transactions" : {
       "get" : {
         "tags" : [ "Manager API" ],
@@ -5607,7 +5877,7 @@
       "get" : {
         "tags" : [ "Courier API" ],
         "summary" : "Kuryer bildirishnomalari ro'yxati (sahifalangan)",
-        "operationId" : "getNotifications",
+        "operationId" : "getNotifications_2",
         "parameters" : [ {
           "name" : "page",
           "in" : "query",
@@ -5813,7 +6083,7 @@
       "get" : {
         "tags" : [ "Client API" ],
         "summary" : "Mijoz bildirishnomalari ro'yxati (sahifalangan)",
-        "operationId" : "getNotifications_1",
+        "operationId" : "getNotifications_3",
         "parameters" : [ {
           "name" : "page",
           "in" : "query",
@@ -7200,6 +7470,34 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseBusinessGrowthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/courier/cash/handovers/{id}" : {
+      "delete" : {
+        "tags" : [ "Cash & Handover API" ],
+        "summary" : "Kuryer o'z PENDING so'rovini bekor qiladi (status CANCELLED_BY_COURIER)",
+        "operationId" : "cancelHandover",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseCashHandoverResponse"
                 }
               }
             }
@@ -8829,7 +9127,8 @@
             "type" : "number"
           },
           "status" : {
-            "type" : "string"
+            "type" : "string",
+            "enum" : [ "PENDING", "CONFIRMED", "REJECTED", "CANCELLED_BY_COURIER" ]
           },
           "initiatedBy" : {
             "type" : "string"
@@ -11985,6 +12284,127 @@
           }
         }
       },
+      "ApiResponseUnreadCountResponse" : {
+        "type" : "object",
+        "properties" : {
+          "success" : {
+            "type" : "boolean"
+          },
+          "code" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/UnreadCountResponse"
+          },
+          "fieldErrors" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FieldErrorItem"
+            }
+          },
+          "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "UnreadCountResponse" : {
+        "type" : "object",
+        "properties" : {
+          "unreadCount" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "ApiResponseNotificationPageResponse" : {
+        "type" : "object",
+        "properties" : {
+          "success" : {
+            "type" : "boolean"
+          },
+          "code" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/NotificationPageResponse"
+          },
+          "fieldErrors" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FieldErrorItem"
+            }
+          },
+          "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "NotificationItemResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string",
+            "description" : "Kuryer: NEW_OFFER, OFFER_CANCELLED, ORDER_ASSIGNED, CASH_HANDOVER_CONFIRMED, CASH_HANDOVER_REJECTED, SYSTEM. Manager/Boss: CASH_HANDOVER_REQUESTED, CASH_HANDOVER_CANCELLED, CASH_HANDOVER_SHORTAGE (faqat Boss), FEEDBACK_CREATED, SYSTEM",
+            "enum" : [ "NEW_OFFER", "OFFER_CANCELLED", "ORDER_ASSIGNED", "CASH_HANDOVER_CONFIRMED", "CASH_HANDOVER_REJECTED", "CASH_HANDOVER_REQUESTED", "CASH_HANDOVER_CANCELLED", "CASH_HANDOVER_SHORTAGE", "FEEDBACK_CREATED", "SYSTEM" ]
+          },
+          "referenceId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "isRead" : {
+            "type" : "boolean"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "NotificationPageResponse" : {
+        "type" : "object",
+        "properties" : {
+          "content" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/NotificationItemResponse"
+            }
+          },
+          "totalElements" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "totalPages" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "currentPage" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "unreadCount" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
       "ApiResponseObject" : {
         "type" : "object",
         "properties" : {
@@ -13259,125 +13679,6 @@
           }
         }
       },
-      "ApiResponseNotificationPageResponse" : {
-        "type" : "object",
-        "properties" : {
-          "success" : {
-            "type" : "boolean"
-          },
-          "code" : {
-            "type" : "string"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "data" : {
-            "$ref" : "#/components/schemas/NotificationPageResponse"
-          },
-          "fieldErrors" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/FieldErrorItem"
-            }
-          },
-          "timestamp" : {
-            "type" : "string",
-            "format" : "date-time"
-          }
-        }
-      },
-      "NotificationItemResponse" : {
-        "type" : "object",
-        "properties" : {
-          "id" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "title" : {
-            "type" : "string"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "type" : {
-            "type" : "string"
-          },
-          "referenceId" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "isRead" : {
-            "type" : "boolean"
-          },
-          "createdAt" : {
-            "type" : "string",
-            "format" : "date-time"
-          }
-        }
-      },
-      "NotificationPageResponse" : {
-        "type" : "object",
-        "properties" : {
-          "content" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/NotificationItemResponse"
-            }
-          },
-          "totalElements" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "totalPages" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "currentPage" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "unreadCount" : {
-            "type" : "integer",
-            "format" : "int64"
-          }
-        }
-      },
-      "ApiResponseUnreadCountResponse" : {
-        "type" : "object",
-        "properties" : {
-          "success" : {
-            "type" : "boolean"
-          },
-          "code" : {
-            "type" : "string"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "data" : {
-            "$ref" : "#/components/schemas/UnreadCountResponse"
-          },
-          "fieldErrors" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/FieldErrorItem"
-            }
-          },
-          "timestamp" : {
-            "type" : "string",
-            "format" : "date-time"
-          }
-        }
-      },
-      "UnreadCountResponse" : {
-        "type" : "object",
-        "properties" : {
-          "unreadCount" : {
-            "type" : "integer",
-            "format" : "int64"
-          }
-        }
-      },
       "ApiResponseCourierDashboardResponse" : {
         "type" : "object",
         "properties" : {
@@ -13563,12 +13864,69 @@
             "type" : "integer",
             "format" : "int64"
           },
+          "status" : {
+            "type" : "string"
+          },
           "declaredAmount" : {
             "type" : "number"
           },
           "createdAt" : {
             "type" : "string",
             "format" : "date-time"
+          }
+        }
+      },
+      "ApiResponsePageResponseCashHandoverResponse" : {
+        "type" : "object",
+        "properties" : {
+          "success" : {
+            "type" : "boolean"
+          },
+          "code" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageResponseCashHandoverResponse"
+          },
+          "fieldErrors" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/FieldErrorItem"
+            }
+          },
+          "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "PageResponseCashHandoverResponse" : {
+        "type" : "object",
+        "properties" : {
+          "content" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/CashHandoverResponse"
+            }
+          },
+          "page" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalElements" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "totalPages" : {
+            "type" : "integer",
+            "format" : "int32"
           }
         }
       },

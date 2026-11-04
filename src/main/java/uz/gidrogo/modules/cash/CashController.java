@@ -39,6 +39,21 @@ public class CashController {
         return ResponseEntity.ok(ApiResponse.ok("Topshirish so'rovi yuborildi", cashService.requestHandover(courierId, farmId, request)));
     }
 
+    @GetMapping("/api/courier/cash/handovers")
+    @Operation(summary = "Kuryerning kassa topshirishlar tarixi (status: PENDING, CONFIRMED, REJECTED, CANCELLED_BY_COURIER)")
+    public ResponseEntity<ApiResponse<uz.gidrogo.common.PageResponse<CashHandoverResponse>>> getCourierHandovers(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.ok(cashService.getCourierHandovers(SecurityUtils.getCurrentUserId(), status, page, size)));
+    }
+
+    @DeleteMapping("/api/courier/cash/handovers/{id}")
+    @Operation(summary = "Kuryer o'z PENDING so'rovini bekor qiladi (status CANCELLED_BY_COURIER)")
+    public ResponseEntity<ApiResponse<CashHandoverResponse>> cancelHandover(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok("So'rov bekor qilindi", cashService.cancelByCourier(SecurityUtils.getCurrentUserId(), id)));
+    }
+
     // ── Manager Endpoints ────────────────────────────────────────────────────
 
     @PostMapping("/api/manager/cash/handovers/{id}/confirm")

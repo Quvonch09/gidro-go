@@ -35,6 +35,8 @@ public class CashService {
     private final UserRepository userRepository;
     private final CourierWebSocketHandler courierWebSocketHandler;
     private final uz.gidrogo.websocket.WebSocketEventPublisher eventPublisher;
+    private final uz.gidrogo.modules.notification.NotificationService notificationService;
+    private final uz.gidrogo.modules.notification.StaffNotificationService staffNotificationService;
 
     @Transactional
     public void recordCashCollected(Order order, Long courierId) {
@@ -79,6 +81,7 @@ public class CashService {
         PendingHandoverDto pendingDto = handoverRepository.findFirstByCourierIdAndStatus(courierId, "PENDING")
                 .map(h -> PendingHandoverDto.builder()
                         .id(h.getId())
+                        .status(h.getStatus())
                         .declaredAmount(h.getDeclaredAmount())
                         .createdAt(h.getCreatedAt())
                         .build())
@@ -135,6 +138,10 @@ public class CashService {
 
         // So'rov ferma rahbari (Boss) va menejerlar paneliga boradi: /topic/farm/{farmId}/cash
         eventPublisher.publishFarmEvent(farmId, "cash", "CASH_HANDOVER_REQUESTED", response);
+        // Band 24: fermaning barcha Manager'lari va Boss'iga bildirishnoma
+        staffNotificationService.notifyFarmStaff(farmId, "Kassa topshirish so'rovi",
+                (courier != null ? courier.getFullName() : "Kuryer") + " " + money(handover.getDeclaredAmount()) + " so'm topshirmoqchi",
+                "CASH_HANDOVER_REQUESTED", handover.getId());
         log.info("Kassa topshirish so'rovi yaratildi: id={}, courierId={}", handover.getId(), courierId);
 
         return response;
@@ -142,7 +149,7 @@ public class CashService {
 
     @Transactional
     public CashHandoverResponse confirmHandover(Long managerId, Long farmId, Long handoverId, ManagerHandoverConfirmRequest request) {
-        CashHandover handover = findInFarm(handoverId, farmId);
+        CashHandover handover = findInFarmForUpdate(handoverId, farmId);
 
         if (!"PENDING".equalsIgnoreCase(handover.getStatus())) {
             throw new BadRequestException("Topshirish so'rovi faol emas: " + handover.getStatus());
@@ -185,6 +192,8 @@ public class CashService {
         // Kuryerga WS xabari
         Map<String, Object> wsEvent = Map.of(
                 "type", "CASH_HANDOVER_CONFIRMED",
+                "handoverId", handover.getId(),
+                "status", handover.getStatus(),
                 "data", Map.of(
                         "handoverId", handover.getId(),
                         "confirmedAmount", handover.getConfirmedAmount(),
@@ -194,6 +203,20 @@ public class CashService {
         );
         courierWebSocketHandler.sendToCourier(handover.getCourierId(), wsEvent);
 
+        // Band 24: kuryer bildirishnomasi; farq bo'lsa manager izohi bilan
+        boolean differs = handover.getConfirmedAmount().compareTo(handover.getDeclaredAmount()) != 0;
+        notificationService.createNotification(handover.getCourierId(), "Kassa qabul qilindi",
+                money(handover.getConfirmedAmount()) + " so'm qabul qilindi"
+                        + (differs ? " (siz " + money(handover.getDeclaredAmount()) + " so'm yozgansiz). Izoh: " + handover.getNote() : ""),
+                "CASH_HANDOVER_CONFIRMED", handover.getId());
+        // 5.4: kamomad bo'lsa Boss'ga avtomatik xabar
+        if (handover.getConfirmedAmount().compareTo(handover.getDeclaredAmount()) < 0) {
+            staffNotificationService.notifyFarmBoss(handover.getFarmId(), "Kassa kamomadi",
+                    (courier != null ? courier.getFullName() : "Kuryer") + ": e'lon " + money(handover.getDeclaredAmount())
+                            + ", qabul " + money(handover.getConfirmedAmount()) + " so'm. Izoh: " + handover.getNote(),
+                    "CASH_HANDOVER_SHORTAGE", handover.getId());
+        }
+
         CashHandoverResponse response = mapToResponse(handover, courier != null ? courier.getFullName() : null, manager != null ? manager.getFullName() : null);
         eventPublisher.publishFarmEvent(handover.getFarmId(), "cash", "CASH_HANDOVER_CONFIRMED", response);
         return response;
@@ -201,7 +224,7 @@ public class CashService {
 
     @Transactional
     public CashHandoverResponse rejectHandover(Long managerId, Long farmId, Long handoverId, ManagerHandoverRejectRequest request) {
-        CashHandover handover = findInFarm(handoverId, farmId);
+        CashHandover handover = findInFarmForUpdate(handoverId, farmId);
 
         if (!"PENDING".equalsIgnoreCase(handover.getStatus())) {
             throw new BadRequestException("Topshirish so'rovi faol emas: " + handover.getStatus());
@@ -224,6 +247,8 @@ public class CashService {
         // Kuryerga WS xabari
         Map<String, Object> wsEvent = Map.of(
                 "type", "CASH_HANDOVER_REJECTED",
+                "handoverId", handover.getId(),
+                "status", handover.getStatus(),
                 "data", Map.of(
                         "handoverId", handover.getId(),
                         "reason", request.getReason()
@@ -232,9 +257,70 @@ public class CashService {
         );
         courierWebSocketHandler.sendToCourier(handover.getCourierId(), wsEvent);
 
+        notificationService.createNotification(handover.getCourierId(), "Kassa so'rovi rad etildi",
+                money(handover.getDeclaredAmount()) + " so'm rad etildi. Sabab: " + request.getReason(),
+                "CASH_HANDOVER_REJECTED", handover.getId());
+
         CashHandoverResponse response = mapToResponse(handover, courier != null ? courier.getFullName() : null, manager != null ? manager.getFullName() : null);
         eventPublisher.publishFarmEvent(handover.getFarmId(), "cash", "CASH_HANDOVER_REJECTED", response);
         return response;
+    }
+
+    /** Band 24.3: kuryer o'z PENDING so'rovini bekor qiladi. Yozuv o'chirilmaydi — status CANCELLED_BY_COURIER */
+    @Transactional
+    public CashHandoverResponse cancelByCourier(Long courierId, Long handoverId) {
+        CashHandover handover = handoverRepository.findByIdForUpdate(handoverId)
+                .orElseThrow(() -> uz.gidrogo.common.ApiException.notFound("HANDOVER_NOT_FOUND", "Topshirish so'rovi topilmadi"));
+        if (!handover.getCourierId().equals(courierId)) {
+            throw uz.gidrogo.common.ApiException.forbidden("FORBIDDEN", "Bu so'rov sizga tegishli emas");
+        }
+        if (!"PENDING".equals(handover.getStatus())) {
+            throw uz.gidrogo.common.ApiException.conflict("HANDOVER_NOT_PENDING",
+                    "Faqat kutilayotgan so'rovni bekor qilish mumkin (joriy holat: " + handover.getStatus() + ")");
+        }
+        handover.setStatus("CANCELLED_BY_COURIER");
+        handover.setResolvedAt(Instant.now());
+        handover = handoverRepository.save(handover);
+
+        User courier = userRepository.findById(courierId).orElse(null);
+        CashHandoverResponse response = mapToResponse(handover, courier != null ? courier.getFullName() : null, null);
+        eventPublisher.publishFarmEvent(handover.getFarmId(), "cash", "CASH_HANDOVER_CANCELLED", response);
+        staffNotificationService.notifyFarmStaff(handover.getFarmId(), "Kassa so'rovi bekor qilindi",
+                (courier != null ? courier.getFullName() : "Kuryer") + " " + money(handover.getDeclaredAmount()) + " so'mlik so'rovini bekor qildi",
+                "CASH_HANDOVER_CANCELLED", handover.getId());
+        return response;
+    }
+
+    /** Band 24.2.1: kuryerning topshirishlar tarixi */
+    @Transactional(readOnly = true)
+    public uz.gidrogo.common.PageResponse<CashHandoverResponse> getCourierHandovers(Long courierId, String status, int page, int size) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw uz.gidrogo.common.ApiException.badRequest("INVALID_PARAMETER", "'page' 0 dan, 'size' 1–100 oralig'ida bo'lishi kerak");
+        }
+        org.springframework.data.domain.PageRequest pr = org.springframework.data.domain.PageRequest.of(page, size);
+        org.springframework.data.domain.Page<CashHandover> paged = status == null || status.isBlank() || "ALL".equalsIgnoreCase(status)
+                ? handoverRepository.findAllByCourierIdOrderByCreatedAtDesc(courierId, pr)
+                : handoverRepository.findAllByCourierIdAndStatusOrderByCreatedAtDesc(courierId, status.trim().toUpperCase(), pr);
+        String courierName = userRepository.findById(courierId).map(User::getFullName).orElse(null);
+        return uz.gidrogo.common.PageResponse.of(paged, h -> mapToResponse(h, courierName,
+                h.getManagerId() != null ? userRepository.findById(h.getManagerId()).map(User::getFullName).orElse(null) : null));
+    }
+
+    public long countPendingHandovers(Long farmId) {
+        return farmId == null ? 0 : handoverRepository.countByFarmIdAndStatus(farmId, "PENDING");
+    }
+
+    private CashHandover findInFarmForUpdate(Long handoverId, Long farmId) {
+        return handoverRepository.findByIdForUpdate(handoverId)
+                .filter(h -> farmId != null && farmId.equals(h.getFarmId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Topshirish so'rovi topilmadi"));
+    }
+
+    private static String money(BigDecimal amount) {
+        if (amount == null) return "0";
+        java.text.DecimalFormat f = new java.text.DecimalFormat("#,##0.##");
+        f.setDecimalFormatSymbols(new java.text.DecimalFormatSymbols(java.util.Locale.ROOT) {{ setGroupingSeparator(' '); }});
+        return f.format(amount);
     }
 
     /** Boshqa fermaning so'rovi tasdiqlanmasin: ferma mos kelmasa 404 */

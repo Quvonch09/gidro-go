@@ -38,6 +38,7 @@ public class ManagerController {
     private final OrderService orderService;
     private final StockService stockService;
     private final FinanceService financeService;
+    private final uz.gidrogo.modules.cash.CashService cashService;
     private final CourierService courierService;
     private final ClientService clientService;
     private final uz.gidrogo.modules.courier.CourierDispatchService courierDispatchService;
@@ -50,7 +51,9 @@ public class ManagerController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         Long farmId = SecurityUtils.getCurrentFarmId();
-        return ResponseEntity.ok(ApiResponse.ok(financeService.getDashboard(farmId, date, period, startDate, endDate)));
+        DashboardResponse dashboard = financeService.getDashboard(farmId, date, period, startDate, endDate);
+        dashboard.setPendingHandoversCount(cashService.countPendingHandovers(farmId));
+        return ResponseEntity.ok(ApiResponse.ok(dashboard));
     }
 
     @GetMapping("/products")
